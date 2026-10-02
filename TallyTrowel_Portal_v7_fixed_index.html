@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TallyTrowel Portal</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<style>
+:root{--navy:#0f2f4d;--blue:#1f6fa8;--green:#1e8a5a;--red:#c43f45;--bg:#f4f7fa;--card:#fff;--ink:#17212b;--muted:#687685;--line:#dbe3ea;--shadow:0 10px 30px rgba(15,47,77,.10);--radius:16px}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}button,input,select,textarea{font:inherit}.hidden{display:none!important}
+.topbar{background:linear-gradient(135deg,var(--navy),var(--blue));color:#fff;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:center;gap:12px}.brandmark{width:42px;height:42px;border-radius:10px;background:linear-gradient(145deg,#f3c969,#c88d23);display:grid;place-items:center;color:#213044;font-weight:900;border:2px solid rgba(255,255,255,.65)}
+.brand h1{margin:0;font-size:22px}.brand small{display:block;opacity:.82}.shell{display:grid;grid-template-columns:245px 1fr;min-height:calc(100vh - 78px)}
+.sidebar{background:#10263a;color:#dce7ef;padding:20px 14px}.side-user{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px;margin-bottom:18px}.side-user strong{display:block;color:#fff}
+.navbtn{width:100%;border:0;background:transparent;color:#dce7ef;text-align:left;padding:12px 13px;border-radius:9px;margin:3px 0;cursor:pointer}.navbtn:hover,.navbtn.active{background:#1d4667;color:#fff}.main{padding:26px;overflow:auto}
+.hero,.card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:0 6px 18px rgba(15,47,77,.06)}.hero{background:linear-gradient(135deg,#fff,#eef6fb);margin-bottom:20px}.hero h2{margin:0 0 6px;color:var(--navy)}.hero p{margin:0;color:var(--muted)}
+.grid{display:grid;gap:16px}.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat small{display:block;color:var(--muted);text-transform:uppercase;font-weight:800;font-size:12px}.stat strong{display:block;font-size:26px;margin-top:6px;color:var(--navy)}
+.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:24px 0 12px}.section-title h3{margin:0;color:var(--navy)}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}th{background:#eef4f8;color:#274157;font-size:12px;text-transform:uppercase}
+.btn{border:0;border-radius:9px;padding:10px 14px;font-weight:800;cursor:pointer}.primary{background:var(--blue);color:#fff}.secondary{background:#e8eef4;color:#243849}.success{background:var(--green);color:#fff}.danger{background:#fde9ea;color:#a72b32}.small{padding:7px 10px;font-size:12px}
+.badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800;background:#e8eef4}.paid{background:#e8f7ef;color:#167348}.awaitingpayment{background:#fff4df;color:#8a5b11}.reduced,.partpaid{background:#fff0e6;color:#a35a12}.rejectedunpaid{background:#ffe9e9;color:#a72b32}.corrected{background:#eee9ff;color:#6547a8}.disputed{background:#fde7f3;color:#9a2d65}.open{background:#ffe9e9;color:#a72b32}.reviewing{background:#fff1d8;color:#986416}.resolved{background:#e7f6ee;color:#176c48}
+.money-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}.money{background:#f6f9fb;border:1px solid var(--line);border-radius:10px;padding:12px}.money small{display:block;color:var(--muted)}.money strong{font-size:20px}
+.login{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#eaf2f8,#f8fbfd)}.login-card{width:min(560px,100%);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}.login-head{background:linear-gradient(135deg,var(--navy),var(--blue));color:#fff;padding:28px}.login-body{padding:24px}
+.field label{display:block;font-weight:800;font-size:13px;margin-bottom:6px}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px}.field textarea{min-height:100px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.full{grid-column:1/-1}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.modal{position:fixed;inset:0;background:rgba(7,20,33,.55);display:grid;place-items:center;padding:18px;z-index:50}.modal-card{background:#fff;width:min(820px,100%);max-height:90vh;overflow:auto;border-radius:16px;padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center}.message{border:1px solid var(--line);border-radius:11px;padding:12px;margin:9px 0}.message.admin{background:#eef6fb}.meta{font-size:12px;color:var(--muted);margin-bottom:4px}.notice{background:#fff6dd;border:1px solid #efd59b;border-radius:10px;padding:12px;color:#6e5318}
+@media(max-width:900px){.shell{grid-template-columns:1fr}.sidebar{display:flex;gap:6px;overflow:auto;padding:10px}.side-user{display:none}.navbtn{white-space:nowrap;width:auto}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.main{padding:14px}.stats,.form-grid,.money-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="loginView" class="login">
+  <div class="login-card">
+    <div class="login-head"><div class="brand"><div class="brandmark">TT</div><div><h1>TallyTrowel Portal</h1><small>Secure worker payment portal</small></div></div></div>
+    <div class="login-body">
+      <h2 style="margin-top:0">Sign in</h2>
+      <div class="field"><label>Email</label><input id="email" type="email"></div>
+      <div class="field" style="margin-top:12px"><label>Password</label><input id="password" type="password"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" onclick="signIn()">Log in</button>
+        <button class="btn secondary" onclick="showForgotPassword()">Forgot password?</button>
+      </div>
+      <p id="loginError" style="color:#a72b32"></p>
+    </div>
+  </div>
+</div>
+
+<div id="recoveryView" class="login hidden">
+  <div class="login-card">
+    <div class="login-head">
+      <div class="brand">
+        <div class="brandmark">TT</div>
+        <div><h1>TallyTrowel Portal</h1><small>Password recovery</small></div>
+      </div>
+    </div>
+    <div class="login-body">
+      <h2 id="recoveryTitle" style="margin-top:0">Reset your password</h2>
+      <div id="recoveryRequestPanel">
+        <p style="color:var(--muted)">Enter your account email address. If an account exists, a password reset link will be sent.</p>
+        <div class="field"><label>Email</label><input id="recoveryEmail" type="email"></div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" onclick="requestPasswordReset()">Send reset link</button>
+          <button class="btn secondary" onclick="backToLogin()">Back to login</button>
+        </div>
+        <p id="recoveryMessage"></p>
+      </div>
+
+      <div id="newPasswordPanel" class="hidden">
+        <p style="color:var(--muted)">Choose a new password for your TallyTrowel Portal account.</p>
+        <div class="field"><label>New Password</label><input id="newPassword" type="password"></div>
+        <div class="field" style="margin-top:12px"><label>Confirm New Password</label><input id="confirmPassword" type="password"></div>
+        <div class="notice" style="margin-top:14px">Use at least 8 characters. A longer unique password is better.</div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" onclick="saveNewPassword()">Set new password</button>
+        </div>
+        <p id="newPasswordMessage"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+  <div class="topbar">
+    <div class="brand"><div class="brandmark">TT</div><div><h1>TallyTrowel Portal</h1><small>Payments & Queries</small></div></div>
+    <div class="row"><span id="topName"></span><button class="btn secondary small" onclick="signOut()">Log out</button></div>
+  </div>
+  <div class="shell">
+    <aside class="sidebar"><div class="side-user"><strong id="sideName"></strong><span id="sideRole"></span></div><div id="nav"></div></aside>
+    <main class="main"><div id="content"></div></main>
+  </div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card"><div class="modal-head"><h3 id="modalTitle"></h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><div id="modalBody"></div></div>
+</div>
+
+<script>
+const sb = supabase.createClient(window.TALLYTROWEL_SUPABASE_URL, window.TALLYTROWEL_SUPABASE_ANON_KEY);
+let session=null, profile=null, page='dashboard';
+
+const fmt=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(Number(n||0));
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+const date=d=>{if(!d)return'—';const [y,m,dd]=d.split('-');return `${dd}/${m}/${y}`};
+const statusClass=s=>String(s||'').toLowerCase().replace(/[^a-z]/g,'');
+
+function deviceSummary(){
+  const ua=navigator.userAgent||'';
+  const platform=navigator.userAgentData?.platform || navigator.platform || '';
+  let browser='Browser';
+  if(/Edg\//.test(ua)) browser='Edge';
+  else if(/Chrome\//.test(ua)) browser='Chrome';
+  else if(/Firefox\//.test(ua)) browser='Firefox';
+  else if(/Safari\//.test(ua)) browser='Safari';
+
+  let os=platform||'Unknown device';
+  if(/Windows/i.test(ua)) os='Windows';
+  else if(/Android/i.test(ua)) os='Android';
+  else if(/iPhone|iPad|iPod/i.test(ua)) os='iOS/iPadOS';
+  else if(/Macintosh|Mac OS X/i.test(ua)) os='macOS';
+
+  return `${browser} / ${os}`;
+}
+
+async function logActivity(eventType,eventDetail='',targetType='',targetId=null){
+  if(!session?.user?.id) return;
+  try{
+    await sb.from('activity_log').insert({
+      user_id: session.user.id,
+      event_type: eventType,
+      event_detail: eventDetail,
+      target_type: targetType,
+      target_id: targetId || null,
+      user_agent: `${deviceSummary()} | ${navigator.userAgent||''}`
+    });
+  }catch(e){
+    console.warn('Activity log failed:',e);
+  }
+}
+
+
+
+function showForgotPassword(){
+  loginView.classList.add('hidden');
+  appView.classList.add('hidden');
+  recoveryView.classList.remove('hidden');
+  recoveryRequestPanel.classList.remove('hidden');
+  newPasswordPanel.classList.add('hidden');
+  recoveryTitle.textContent='Reset your password';
+  recoveryEmail.value=email.value.trim();
+  recoveryMessage.textContent='';
+}
+
+function backToLogin(){
+  recoveryView.classList.add('hidden');
+  appView.classList.add('hidden');
+  loginView.classList.remove('hidden');
+  loginError.textContent='';
+}
+
+async function requestPasswordReset(){
+  const address=recoveryEmail.value.trim().toLowerCase();
+  recoveryMessage.style.color='var(--muted)';
+  recoveryMessage.textContent='';
+
+  if(!address){
+    recoveryMessage.style.color='#a72b32';
+    recoveryMessage.textContent='Enter your email address.';
+    return;
+  }
+
+  const redirectTo = `${window.location.origin}${window.location.pathname}?recovery=1`;
+
+  const {error}=await sb.auth.resetPasswordForEmail(address,{redirectTo});
+
+  if(error){
+    recoveryMessage.style.color='#a72b32';
+    recoveryMessage.textContent=error.message;
+    return;
+  }
+
+  recoveryMessage.style.color='var(--green)';
+  recoveryMessage.textContent='If an account exists for that email, a password reset link has been sent.';
+}
+
+function isRecoveryRoute(){
+  const params=new URLSearchParams(window.location.search);
+  return params.get('recovery')==='1'
+      || window.location.hash.includes('type=recovery');
+}
+
+function showNewPasswordScreen(){
+  loginView.classList.add('hidden');
+  appView.classList.add('hidden');
+  recoveryView.classList.remove('hidden');
+  recoveryRequestPanel.classList.add('hidden');
+  newPasswordPanel.classList.remove('hidden');
+  recoveryTitle.textContent='Choose a new password';
+  newPasswordMessage.textContent='';
+}
+
+async function saveNewPassword(){
+  const p1=newPassword.value;
+  const p2=confirmPassword.value;
+  newPasswordMessage.textContent='';
+
+  if(p1.length < 8){
+    newPasswordMessage.style.color='#a72b32';
+    newPasswordMessage.textContent='Password must be at least 8 characters.';
+    return;
+  }
+
+  if(p1 !== p2){
+    newPasswordMessage.style.color='#a72b32';
+    newPasswordMessage.textContent='The two passwords do not match.';
+    return;
+  }
+
+  const {error}=await sb.auth.updateUser({password:p1});
+
+  if(error){
+    newPasswordMessage.style.color='#a72b32';
+    newPasswordMessage.textContent=error.message;
+    return;
+  }
+
+  await logActivity('PASSWORD_CHANGED','User changed their password after recovery');
+
+  newPasswordMessage.style.color='var(--green)';
+  newPasswordMessage.textContent='Password changed successfully. Opening your portal…';
+
+  setTimeout(async ()=>{
+    history.replaceState({},'',window.location.pathname);
+    recoveryView.classList.add('hidden');
+    await boot();
+  },700);
+}
+
+async function signIn(){
+  document.getElementById('loginError').textContent='';
+
+  const {data,error}=await sb.auth.signInWithPassword({
+    email:email.value.trim(),
+    password:password.value
+  });
+
+  if(error){
+    document.getElementById('loginError').textContent=error.message;
+    return;
+  }
+
+  session=data.session;
+  await logActivity('LOGIN_SUCCESS','Successful portal login');
+  await boot();
+}
+
+async function signOut(){
+  await logActivity('LOGOUT','User logged out of the portal');
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function boot(){
+  const {data:{session:s}}=await sb.auth.getSession();
+  session=s;
+
+  if(isRecoveryRoute()){
+    loginView.classList.add('hidden');
+    appView.classList.add('hidden');
+    recoveryView.classList.remove('hidden');
+
+    if(session){
+      const {data:p}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
+      if(p) profile=p;
+      showNewPasswordScreen();
+    }else{
+      recoveryRequestPanel.classList.add('hidden');
+      newPasswordPanel.classList.add('hidden');
+      recoveryTitle.textContent='Opening password reset…';
+    }
+    return;
+  }
+
+  if(!session){
+    loginView.classList.remove('hidden');
+    recoveryView.classList.add('hidden');
+    appView.classList.add('hidden');
+    return;
+  }
+
+  const {data:p,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  profile=p;
+  loginView.classList.add('hidden');
+  recoveryView.classList.add('hidden');
+  appView.classList.remove('hidden');
+  renderShell();
+}
+function renderShell(){
+  topName.textContent=profile.full_name||session.user.email;sideName.textContent=profile.full_name||session.user.email;sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
+  const items=profile.role==='admin'
+    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity']]
+    : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries']];
+  nav.innerHTML=items.map(([id,l])=>`<button class="navbtn ${page===id?'active':''}" onclick="go('${id}')">${l}</button>`).join('');
+  renderPage();
+}
+function go(p){page=p;renderShell()}
+async function renderPage(){
+  if(profile.role==='admin'){
+    if(page==='dashboard')return adminDashboard();
+    if(page==='payments')return adminPayments();
+    if(page==='queries')return adminQueries();
+    if(page==='workers')return workersPage();
+    if(page==='security')return securityPage();
+  }else{
+    if(page==='dashboard')return workerDashboard();
+    if(page==='payments')return workerPayments();
+    if(page==='queries')return workerQueries();
+  }
+}
+function stat(l,v){return `<div class="card stat"><small>${esc(l)}</small><strong>${v}</strong></div>`}
+function money(l,v){return `<div class="money"><small>${esc(l)}</small><strong>${fmt(v)}</strong></div>`}
+
+async function getPayments(){
+  let q=sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').order('week_ending',{ascending:false});
+  if(profile.role!=='admin')q=q.eq('worker_id',session.user.id);
+  const {data,error}=await q;if(error)throw error;return data||[];
+}
+function totals(p){return (p.payment_items||[]).reduce((a,i)=>({booked:a.booked+Number(i.booked_amount||0),paid:a.paid+Number(i.paid_amount||0)}),{booked:0,paid:0})}
+
+async function workerDashboard(){
+  try{
+    const ps=await getPayments();const t=ps.reduce((a,p)=>{const x=totals(p);a.booked+=x.booked;a.paid+=x.paid;return a},{booked:0,paid:0});
+    content.innerHTML=`<div class="hero"><h2>Welcome, ${esc(profile.full_name)}</h2><p>See what has been booked for you, what has actually been paid, and query anything that looks wrong.</p></div>
+    <div class="grid stats">${stat('Booked / Expected',fmt(t.booked))}${stat('Actually Paid',fmt(t.paid))}${stat('Difference',fmt(Math.max(0,t.booked-t.paid)))}${stat('Payments',ps.length)}</div>
+    <div class="section-title"><h3>Latest Payments</h3></div>${ps.slice(0,3).map(paymentCard).join('')||'<div class="card">No payments yet.</div>'}`;
+  }catch(e){content.innerHTML=`<div class="card">${esc(e.message)}</div>`}
+}
+async function workerPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>My Payments</h2><p>Published payment records and item-by-item status.</p></div><div class="grid">${ps.map(paymentCard).join('')||'<div class="card">No payments.</div>'}</div>`}
+function paymentCard(p){
+  const t=totals(p),name=p.profiles?.full_name||profile.full_name;
+  return `<div class="card"><div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(p.site)} • ${date(p.week_ending)}</h3><small>${esc(name||'')}</small></div><span class="badge ${statusClass(p.status)}">${esc(p.status)}</span></div>
+  <div class="money-grid">${money('Booked / Expected',t.booked)}${money('Actually Paid',t.paid)}${money('Difference',Math.max(0,t.booked-t.paid))}${money('Net Statement',p.net_statement)}</div>
+  <button class="btn primary small" onclick="openPayment('${p.id}')">View breakdown</button></div>`;
+}
+async function openPayment(id){
+  const {data:p,error}=await sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').eq('id',id).single();if(error)return alert(error.message);
+  modalTitle.textContent=`Payment • ${p.profiles?.full_name||''} • ${date(p.week_ending)}`;const t=totals(p);
+  modalBody.innerHTML=`<div class="money-grid">${money('Booked',t.booked)}${money('Paid',t.paid)}${money('Difference',Math.max(0,t.booked-t.paid))}${money('Net',p.net_statement)}</div>
+  <div class="table-wrap"><table><thead><tr><th>Type</th><th>Reference</th><th>Description</th><th>Booked</th><th>Paid</th><th>Status</th>${profile.role==='admin'?'<th>Action</th>':''}</tr></thead><tbody>
+  ${(p.payment_items||[]).map(i=>`<tr><td>${esc(i.type)}</td><td>${esc(i.reference)}</td><td>${esc(i.description)}${i.note?`<div class="meta">${esc(i.note)}</div>`:''}</td><td>${fmt(i.booked_amount)}</td><td>${fmt(i.paid_amount)}</td><td><span class="badge ${statusClass(i.status)}">${esc(i.status)}</span></td>${profile.role==='admin'?`<td><button class="btn secondary small" onclick="editItem('${i.id}','${p.id}')">Update</button></td>`:''}</tr>`).join('')}
+  </tbody></table></div>
+  ${profile.role==='worker'
+    ? `<button class="btn danger" style="margin-top:14px" onclick="startQuery('${p.id}')">Query this payment</button>`
+    : `<button class="btn success" style="margin-top:14px" onclick="addItemToExistingPayment('${p.id}')">➕ Add another item</button>`}`;
+  showModal();
+}
+
+async function addItemToExistingPayment(paymentId){
+  modalTitle.textContent='Add item to payment';
+  modalBody.innerHTML=`
+    <div class="form-grid">
+      <div class="field">
+        <label>Type</label>
+        <select id="aepiType">
+          <option>Measured Works</option>
+          <option>Daywork</option>
+          <option>Garden Wall</option>
+          <option>Adjustment</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Reference</label><input id="aepiRef" placeholder="e.g. Plot 486 - 4th Lift"></div>
+      <div class="field full"><label>Description</label><input id="aepiDesc"></div>
+      <div class="field"><label>Booked / Expected</label><input id="aepiBooked" type="number" step="0.01"></div>
+      <div class="field"><label>Actually Paid</label><input id="aepiPaid" type="number" step="0.01" value="0"></div>
+      <div class="field">
+        <label>Status</label>
+        <select id="aepiStatus">
+          <option>Booked In</option>
+          <option selected>Awaiting Payment</option>
+          <option>Paid</option>
+          <option>Reduced</option>
+          <option>Rejected / Unpaid</option>
+          <option>Corrected</option>
+          <option>Disputed</option>
+        </select>
+      </div>
+      <div class="field full"><label>Note / Reason</label><textarea id="aepiNote"></textarea></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn success" onclick="saveItemToExistingPayment('${paymentId}')">Add Item</button>
+      <button class="btn secondary" onclick="openPayment('${paymentId}')">Cancel</button>
+    </div>`;
+  showModal();
+}
+
+async function saveItemToExistingPayment(paymentId){
+  const payload={
+    payment_id:paymentId,
+    type:document.getElementById('aepiType').value,
+    reference:document.getElementById('aepiRef').value.trim(),
+    description:document.getElementById('aepiDesc').value.trim(),
+    booked_amount:Math.max(0,Number(document.getElementById('aepiBooked').value||0)),
+    paid_amount:Math.max(0,Number(document.getElementById('aepiPaid').value||0)),
+    status:document.getElementById('aepiStatus').value,
+    note:document.getElementById('aepiNote').value.trim()
+  };
+
+  if(!payload.reference){
+    alert('Please enter a reference.');
+    return;
+  }
+
+  const {data:added,error}=await sb.from('payment_items').insert(payload).select().single();
+  if(error)return alert(error.message);
+
+  await logActivity('PAYMENT_ITEM_ADDED',`Added ${payload.reference} (${fmt(payload.booked_amount)})`,'payment_item',added.id);
+  openPayment(paymentId);
+  renderShell();
+}
+
+async function startQuery(paymentId){
+  const {data:p,error}=await sb
+    .from('payments')
+    .select('id,site,week_ending,net_statement')
+    .eq('id',paymentId)
+    .single();
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  modalTitle.textContent='Query this payment';
+  modalBody.innerHTML=`
+    <div class="notice">
+      <strong>${esc(p.site)}</strong><br>
+      Week ending: ${date(p.week_ending)}<br>
+      Net statement: ${fmt(p.net_statement)}
+    </div>
+
+    <div class="form-grid" style="margin-top:16px">
+      <div class="field full">
+        <label>Reason for query</label>
+        <select id="queryReason">
+          <option value="">Select a reason...</option>
+          <option>Missing work</option>
+          <option>Wrong amount</option>
+          <option>Wrong hours</option>
+          <option>Wrong deduction</option>
+          <option>Payment not received</option>
+          <option>Incorrect status</option>
+          <option>Other</option>
+        </select>
+      </div>
+
+      <div class="field full">
+        <label>What is wrong with this payment?</label>
+        <textarea id="queryMessage" placeholder="Give as much detail as you can, for example: DW-001 is still showing unpaid, but I expected it to be included."></textarea>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button class="btn danger" onclick="submitPaymentQuery('${paymentId}')">Send Query</button>
+      <button class="btn secondary" onclick="openPayment('${paymentId}')">Cancel</button>
+    </div>`;
+
+  showModal();
+}
+
+async function submitPaymentQuery(paymentId){
+  const reason=document.getElementById('queryReason').value;
+  const message=document.getElementById('queryMessage').value.trim();
+
+  if(!reason){
+    alert('Please select a reason for the query.');
+    return;
+  }
+
+  if(!message){
+    alert('Please enter some details about what looks wrong.');
+    return;
+  }
+
+  const combinedMessage=`${reason}: ${message}`;
+
+  let {data:q,error}=await sb
+    .from('payment_queries')
+    .insert({
+      payment_id:paymentId,
+      worker_id:session.user.id,
+      status:'Open'
+    })
+    .select()
+    .single();
+
+  if(error && error.code==='23505'){
+    const r=await sb
+      .from('payment_queries')
+      .select('*')
+      .eq('payment_id',paymentId)
+      .eq('worker_id',session.user.id)
+      .single();
+    q=r.data;
+    error=r.error;
+  }
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  const m=await sb.from('query_messages').insert({
+    query_id:q.id,
+    sender_id:session.user.id,
+    message:combinedMessage
+  });
+
+  if(m.error){
+    alert(m.error.message);
+    return;
+  }
+
+  await logActivity(
+    'PAYMENT_QUERY_CREATED',
+    `Worker created a payment query: ${reason}`,
+    'payment_query',
+    q.id
+  );
+
+  modalTitle.textContent='Query sent';
+  modalBody.innerHTML=`
+    <div class="notice">
+      Your query has been sent successfully.
+    </div>
+    <p><strong>Reason:</strong> ${esc(reason)}</p>
+    <p>${esc(message)}</p>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" onclick="closeModal();go('queries')">View My Queries</button>
+      <button class="btn secondary" onclick="closeModal()">Close</button>
+    </div>`;
+}
+async function getQueries(){
+  let q=sb.from('payment_queries').select('*, profiles!payment_queries_worker_id_fkey(full_name), payments(site,week_ending), query_messages(*)').order('created_at',{ascending:false});
+  if(profile.role!=='admin')q=q.eq('worker_id',session.user.id);
+  const {data,error}=await q;if(error)throw error;return data||[];
+}
+function queryTable(qs){
+  return `<div class="table-wrap"><table><thead><tr><th>Worker</th><th>Payment</th><th>Status</th><th>Action</th></tr></thead><tbody>${qs.map(q=>`<tr><td>${esc(q.profiles?.full_name||profile.full_name)}</td><td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td><td><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td><td><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td></tr>`).join('')}</tbody></table></div>`
+}
+async function workerQueries(){const qs=await getQueries();content.innerHTML=`<div class="hero"><h2>My Queries</h2><p>Messages you have raised about your wages.</p></div>${queryTable(qs)}`}
+async function adminQueries(){const qs=await getQueries();content.innerHTML=`<div class="hero"><h2>Payment Queries</h2><p>Review and resolve worker questions.</p></div>${queryTable(qs)}`}
+async function openQuery(id){
+  const {data:q,error}=await sb.from('payment_queries').select('*, profiles!payment_queries_worker_id_fkey(full_name), payments(site,week_ending), query_messages(*)').eq('id',id).single();if(error)return alert(error.message);
+  const msgs=(q.query_messages||[]).sort((a,b)=>a.created_at.localeCompare(b.created_at));
+  modalTitle.textContent=`Payment Query • ${q.profiles?.full_name||''}`;
+  modalBody.innerHTML=`<div class="notice">${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</div>
+  <div class="row" style="margin:14px 0"><strong>Status:</strong>${profile.role==='admin'?`<select id="qStatus" onchange="setQueryStatus('${q.id}',this.value)">${['Open','Reviewing','Resolved'].map(s=>`<option ${s===q.status?'selected':''}>${s}</option>`).join('')}</select>`:`<span class="badge ${statusClass(q.status)}">${esc(q.status)}</span>`}</div>
+  ${msgs.map(m=>`<div class="message ${m.sender_id===session.user.id && profile.role==='admin'?'admin':''}"><div class="meta">${new Date(m.created_at).toLocaleString('en-GB')}</div>${esc(m.message)}</div>`).join('')}
+  <div class="field"><label>Message</label><textarea id="reply"></textarea></div><button class="btn primary" style="margin-top:10px" onclick="sendReply('${q.id}')">Send</button>`;
+  showModal();
+}
+async function sendReply(qid){
+  const message=reply.value.trim();
+  if(!message)return;
+  const {error}=await sb.from('query_messages').insert({query_id:qid,sender_id:session.user.id,message});
+  if(error)return alert(error.message);
+  await logActivity('QUERY_MESSAGE_SENT',profile.role==='admin'?'Admin replied to payment query':'Worker added message to payment query','payment_query',qid);
+  if(profile.role==='admin')await sb.from('payment_queries').update({status:'Reviewing'}).eq('id',qid).eq('status','Open');
+  openQuery(qid);
+}
+async function setQueryStatus(id,status){
+  const {error}=await sb.from('payment_queries').update({status}).eq('id',id);
+  if(error)alert(error.message);
+  else{
+    await logActivity('QUERY_STATUS_CHANGED',`Query status changed to ${status}`,'payment_query',id);
+    renderShell();
+  }
+}
+
+
+function showInviteWorker(){
+  modalTitle.textContent='Add / Invite Worker';
+  modalBody.innerHTML=`
+    <div class="notice">
+      Choose how to create the worker. Email invite is best for normal use. Temporary password is useful for testing or if email delivery is unavailable.
+    </div>
+
+    <div class="form-grid" style="margin-top:16px">
+      <div class="field">
+        <label>Worker name</label>
+        <input id="iwName" placeholder="e.g. John Smith">
+      </div>
+
+      <div class="field">
+        <label>Email address</label>
+        <input id="iwEmail" type="email" placeholder="john@example.com">
+      </div>
+
+      <div class="field full">
+        <label>Account setup method</label>
+        <select id="iwMethod" onchange="toggleInviteMethod()">
+          <option value="invite">Send email invite</option>
+          <option value="temporary_password">Create with temporary password</option>
+        </select>
+      </div>
+
+      <div id="iwTempPasswordWrap" class="field full hidden">
+        <label>Temporary password</label>
+        <input id="iwTempPassword" type="text" placeholder="At least 8 characters">
+        <div class="meta" style="margin-top:6px">Give this to the worker securely. They can later use Forgot password? to set their own password.</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button id="iwSubmitBtn" class="btn success" onclick="createWorkerAccount()">Send Invite</button>
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+    </div>
+
+    <p id="iwMessage"></p>`;
+  showModal();
+  toggleInviteMethod();
+}
+
+function toggleInviteMethod(){
+  const method=document.getElementById('iwMethod')?.value || 'invite';
+  const wrap=document.getElementById('iwTempPasswordWrap');
+  const btn=document.getElementById('iwSubmitBtn');
+
+  if(method==='temporary_password'){
+    wrap?.classList.remove('hidden');
+    if(btn) btn.textContent='Create Worker';
+  }else{
+    wrap?.classList.add('hidden');
+    if(btn) btn.textContent='Send Invite';
+  }
+}
+
+async function createWorkerAccount(){
+  const name=document.getElementById('iwName').value.trim();
+  const emailAddress=document.getElementById('iwEmail').value.trim().toLowerCase();
+  const method=document.getElementById('iwMethod').value;
+  const tempPassword=document.getElementById('iwTempPassword')?.value || '';
+  const msg=document.getElementById('iwMessage');
+  const btn=document.getElementById('iwSubmitBtn');
+
+  msg.textContent='';
+  msg.style.color='var(--muted)';
+
+  if(!name || !emailAddress){
+    msg.style.color='#a72b32';
+    msg.textContent='Name and email are required.';
+    return;
+  }
+
+  if(method==='temporary_password' && tempPassword.length < 8){
+    msg.style.color='#a72b32';
+    msg.textContent='Temporary password must be at least 8 characters.';
+    return;
+  }
+
+  btn.disabled=true;
+  btn.textContent='Working…';
+
+  const {data:{session:currentSession}}=await sb.auth.getSession();
+  if(!currentSession){
+    msg.style.color='#a72b32';
+    msg.textContent='Your login session has expired. Please log in again.';
+    btn.disabled=false;
+    toggleInviteMethod();
+    return;
+  }
+
+  const {data,error}=await sb.functions.invoke('create-worker',{
+    headers:{
+      Authorization:`Bearer ${currentSession.access_token}`
+    },
+    body:{
+      full_name:name,
+      email:emailAddress,
+      method,
+      temporary_password:method==='temporary_password'?tempPassword:null,
+      redirect_to:'https://portal.tallytrowel.com'
+    }
+  });
+
+  btn.disabled=false;
+  toggleInviteMethod();
+
+  if(error){
+    msg.style.color='#a72b32';
+    msg.textContent=error.message || 'Could not create the worker.';
+    return;
+  }
+
+  if(!data?.ok){
+    msg.style.color='#a72b32';
+    msg.textContent=data?.error || 'Could not create the worker.';
+    return;
+  }
+
+  await logActivity(
+    method==='invite'?'WORKER_INVITED':'WORKER_CREATED',
+    `${name} (${emailAddress})`,
+    'worker',
+    data.user_id || null
+  );
+
+  msg.style.color='var(--green)';
+  msg.textContent=method==='invite'
+    ? 'Invite sent successfully.'
+    : 'Worker account created successfully.';
+
+  setTimeout(()=>{
+    closeModal();
+    workersPage();
+  },900);
+}
+
+async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
+async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
+async function workersPage(){
+  const {data,error}=await sb
+    .from('profiles')
+    .select('*')
+    .eq('role','worker')
+    .order('full_name');
+
+  if(error){
+    content.innerHTML=`<div class="card">${esc(error.message)}</div>`;
+    return;
+  }
+
+  content.innerHTML=`
+    <div class="hero">
+      <h2>Workers</h2>
+      <p>Create worker accounts and manage who can access the TallyTrowel Portal.</p>
+    </div>
+
+    <div class="section-title">
+      <h3>Worker Accounts</h3>
+      <button class="btn success small" onclick="showInviteWorker()">➕ Add / Invite Worker</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Role</th>
+            <th>User ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(data||[]).map(w=>`
+            <tr>
+              <td><strong>${esc(w.full_name||'Unnamed worker')}</strong></td>
+              <td>${w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>'}</td>
+              <td>${esc(w.role)}</td>
+              <td style="font-family:monospace;font-size:12px">${esc(w.id)}</td>
+            </tr>`).join('') || `<tr><td colspan="4">No workers yet.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notice" style="margin-top:16px">
+      Worker account creation is handled by a secure Supabase Edge Function. Your service-role key never appears in the website.
+    </div>`;
+}
+
+function renderDraftPaymentItems(){
+  const wrap=document.getElementById('draftItemsWrap');
+  if(!wrap)return;
+
+  if(newPaymentItems.length===0){
+    wrap.innerHTML='<div class="card" style="box-shadow:none;text-align:center;color:var(--muted)">No items added yet. Click “Add Item”.</div>';
+    return;
+  }
+
+  wrap.innerHTML=`
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Reference</th>
+            <th>Description</th>
+            <th>Booked</th>
+            <th>Paid</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${newPaymentItems.map((i,idx)=>`
+            <tr>
+              <td>${esc(i.type)}</td>
+              <td>${esc(i.reference)}</td>
+              <td>${esc(i.description)}</td>
+              <td>${fmt(i.booked_amount)}</td>
+              <td>${fmt(i.paid_amount)}</td>
+              <td><span class="badge ${statusClass(i.status)}">${esc(i.status)}</span></td>
+              <td>
+                <button class="btn secondary small" onclick="editDraftPaymentItem(${idx})">Edit</button>
+                <button class="btn danger small" onclick="deleteDraftPaymentItem(${idx})">Delete</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="3">Totals</th>
+            <th>${fmt(newPaymentItems.reduce((s,i)=>s+Number(i.booked_amount||0),0))}</th>
+            <th>${fmt(newPaymentItems.reduce((s,i)=>s+Number(i.paid_amount||0),0))}</th>
+            <th colspan="2"></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function addDraftPaymentItem(){
+  showDraftItemEditor();
+}
+
+function editDraftPaymentItem(index){
+  showDraftItemEditor(index);
+}
+
+function showDraftItemEditor(index=null){
+  const existing = index===null ? {
+    type:'Measured Works',
+    reference:'',
+    description:'',
+    booked_amount:0,
+    paid_amount:0,
+    status:'Awaiting Payment',
+    note:''
+  } : newPaymentItems[index];
+
+  const parentHtml=modalBody.innerHTML;
+
+  modalTitle.textContent=index===null?'Add Payment Item':'Edit Payment Item';
+  modalBody.innerHTML=`
+    <div class="form-grid">
+      <div class="field">
+        <label>Type</label>
+        <select id="dpiType">
+          ${['Measured Works','Daywork','Garden Wall','Adjustment','Other'].map(x=>`<option ${x===existing.type?'selected':''}>${x}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Reference</label><input id="dpiRef" value="${esc(existing.reference)}" placeholder="e.g. Plot 486 - 3rd Lift or DW-123"></div>
+      <div class="field full"><label>Description</label><input id="dpiDesc" value="${esc(existing.description)}"></div>
+      <div class="field"><label>Booked / Expected</label><input id="dpiBooked" type="number" step="0.01" value="${Number(existing.booked_amount||0)}"></div>
+      <div class="field"><label>Actually Paid</label><input id="dpiPaid" type="number" step="0.01" value="${Number(existing.paid_amount||0)}"></div>
+      <div class="field">
+        <label>Status</label>
+        <select id="dpiStatus">
+          ${['Booked In','Awaiting Payment','Paid','Reduced','Rejected / Unpaid','Corrected','Disputed'].map(x=>`<option ${x===existing.status?'selected':''}>${x}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field full"><label>Note / Reason</label><textarea id="dpiNote">${esc(existing.note||'')}</textarea></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" onclick="saveDraftPaymentItem(${index===null?'null':index})">Save Item</button>
+      <button class="btn secondary" onclick="restoreNewPaymentScreen()">Cancel</button>
+    </div>`;
+
+  window._newPaymentParentHtml = parentHtml;
+}
+
+function restoreNewPaymentScreen(){
+  modalTitle.textContent='Add payment';
+  modalBody.innerHTML=window._newPaymentParentHtml || '';
+  renderDraftPaymentItems();
+}
+
+function saveDraftPaymentItem(index){
+  const item={
+    type:document.getElementById('dpiType').value,
+    reference:document.getElementById('dpiRef').value.trim(),
+    description:document.getElementById('dpiDesc').value.trim(),
+    booked_amount:Math.max(0,Number(document.getElementById('dpiBooked').value||0)),
+    paid_amount:Math.max(0,Number(document.getElementById('dpiPaid').value||0)),
+    status:document.getElementById('dpiStatus').value,
+    note:document.getElementById('dpiNote').value.trim()
+  };
+
+  if(!item.reference){
+    alert('Please enter a reference.');
+    return;
+  }
+
+  if(index===null){
+    newPaymentItems.push(item);
+  }else{
+    newPaymentItems[index]=item;
+  }
+
+  restoreNewPaymentScreen();
+}
+
+function deleteDraftPaymentItem(index){
+  if(!confirm('Delete this payment item?'))return;
+  newPaymentItems.splice(index,1);
+  renderDraftPaymentItems();
+}
+
+async function saveNewPayment(){
+  if(newPaymentItems.length===0){
+    alert('Add at least one payment item first.');
+    return;
+  }
+
+  const workerId=document.getElementById('npWorker').value;
+  const site=document.getElementById('npSite').value.trim();
+  const week=document.getElementById('npWeek').value;
+
+  if(!site || !week){
+    alert('Site and week ending are required.');
+    return;
+  }
+
+  const paymentPayload={
+    worker_id:workerId,
+    site,
+    week_ending:week,
+    cis:Number(document.getElementById('npCis').value||0),
+    retention:Number(document.getElementById('npRet').value||0),
+    net_statement:Number(document.getElementById('npNet').value||0),
+    status:document.getElementById('npStatus').value,
+    published:true
+  };
+
+  const {data:p,error}=await sb.from('payments').insert(paymentPayload).select().single();
+  if(error)return alert(error.message);
+
+  const items=newPaymentItems.map(i=>({
+    payment_id:p.id,
+    type:i.type,
+    reference:i.reference,
+    description:i.description,
+    booked_amount:i.booked_amount,
+    paid_amount:i.paid_amount,
+    status:i.status,
+    note:i.note
+  }));
+
+  const {error:itemsError}=await sb.from('payment_items').insert(items);
+
+  if(itemsError){
+    await sb.from('payments').delete().eq('id',p.id);
+    alert('Could not save payment items: '+itemsError.message);
+    return;
+  }
+
+  await logActivity('PAYMENT_PUBLISHED',`Published payment with ${newPaymentItems.length} item(s)`,'payment',p.id);
+  closeModal();
+  newPaymentItems=[];
+  go('payments');
+}
+
+async function editItem(itemId,paymentId){
+  const {data:i,error}=await sb.from('payment_items').select('*').eq('id',itemId).single();if(error)return alert(error.message);
+  modalTitle.textContent='Update booking item';modalBody.innerHTML=`<div class="notice">Keep the booked amount as the original expected value. Change the paid amount and status when the contractor pays, reduces or rejects it.</div><div class="form-grid" style="margin-top:14px">
+  <div class="field"><label>Booked amount</label><input id="eiBooked" type="number" step="0.01" value="${i.booked_amount}"></div><div class="field"><label>Actually paid</label><input id="eiPaid" type="number" step="0.01" value="${i.paid_amount}"></div>
+  <div class="field"><label>Status</label><select id="eiStatus">${['Booked In','Awaiting Payment','Paid','Reduced','Rejected / Unpaid','Corrected','Disputed'].map(s=>`<option ${s===i.status?'selected':''}>${s}</option>`).join('')}</select></div><div class="field full"><label>Reason / note</label><textarea id="eiNote">${esc(i.note)}</textarea></div></div>
+  <button class="btn primary" style="margin-top:14px" onclick="saveItem('${itemId}','${paymentId}')">Save update</button>`;showModal();
+}
+async function saveItem(itemId,paymentId){
+  const {data:old,error}=await sb.from('payment_items').select('*').eq('id',itemId).single();if(error)return alert(error.message);
+  await sb.from('payment_item_history').insert({payment_item_id:itemId,changed_by:session.user.id,previous_data:old});
+  const r=await sb.from('payment_items').update({booked_amount:Number(eiBooked.value||0),paid_amount:Number(eiPaid.value||0),status:eiStatus.value,note:eiNote.value.trim(),updated_at:new Date().toISOString()}).eq('id',itemId);
+  if(r.error)return alert(r.error.message);
+  await logActivity('PAYMENT_ITEM_UPDATED',`Item changed to ${eiStatus.value}; paid ${fmt(Number(eiPaid.value||0))}`,'payment_item',itemId);
+  openPayment(paymentId);
+  renderShell();
+}
+
+async function securityPage(){
+  content.innerHTML=`<div class="hero"><h2>Security & Activity</h2><p>Portal login activity and important wage/payment changes.</p></div>
+  <div class="notice">This page records TallyTrowel Portal activity after a user is successfully authenticated. Supabase Auth Audit Logs remain the authoritative record for failed sign-ins, password resets and lower-level authentication events.</div>
+  <div class="section-title"><h3>Recent Activity</h3><button class="btn secondary small" onclick="securityPage()">Refresh</button></div>
+  <div id="securityResults" class="card">Loading activity…</div>`;
+
+  const {data:logs,error}=await sb
+    .from('activity_log')
+    .select('*, profiles(full_name)')
+    .order('created_at',{ascending:false})
+    .limit(250);
+
+  if(error){
+    securityResults.innerHTML=`<span style="color:#a72b32">${esc(error.message)}</span>`;
+    return;
+  }
+
+  if(!logs?.length){
+    securityResults.innerHTML='No activity has been recorded yet.';
+    return;
+  }
+
+  securityResults.className='table-wrap';
+  securityResults.innerHTML=`<table>
+    <thead><tr><th>Date / Time</th><th>User</th><th>Event</th><th>Details</th><th>Device / Browser</th></tr></thead>
+    <tbody>${logs.map(l=>`
+      <tr>
+        <td>${new Date(l.created_at).toLocaleString('en-GB')}</td>
+        <td>${esc(l.profiles?.full_name||'Unknown / deleted user')}</td>
+        <td><strong>${esc(String(l.event_type||'').replaceAll('_',' '))}</strong></td>
+        <td>${esc(l.event_detail||'')}</td>
+        <td>${esc((l.user_agent||'').split(' | ')[0]||'')}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+function showModal(){modal.classList.remove('hidden')}function closeModal(){modal.classList.add('hidden')}
+
+sb.auth.onAuthStateChange((event,newSession)=>{
+  session=newSession;
+
+  if(event==='PASSWORD_RECOVERY' || (isRecoveryRoute() && newSession)){
+    showNewPasswordScreen();
+  }
+});
+
+boot();
+</script>
+</body>
+</html>
