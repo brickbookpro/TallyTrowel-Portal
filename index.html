@@ -675,9 +675,6 @@ async function createWorkerAccount(){
   }
 
   const {data,error}=await sb.functions.invoke('create-worker',{
-  headers:{
-    Authorization:`Bearer ${currentSession.access_token}`
-  },
   body:{
     full_name:name,
     email:emailAddress,
