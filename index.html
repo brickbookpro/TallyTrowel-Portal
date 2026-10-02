@@ -581,53 +581,192 @@ async function setQueryStatus(id,status){
   }
 }
 
-async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
-async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
-async function workersPage(){const {data,error}=await sb.from('profiles').select('*').eq('role','worker').order('full_name');if(error)return alert(error.message);content.innerHTML=`<div class="hero"><h2>Workers</h2><p>Worker profiles linked to Supabase Auth users.</p></div><div class="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>ID</th></tr></thead><tbody>${data.map(w=>`<tr><td>${esc(w.full_name)}</td><td>${w.active?'Active':'Inactive'}</td><td>${esc(w.id)}</td></tr>`).join('')}</tbody></table></div><div class="notice" style="margin-top:16px">For this secure starter, create/invite worker logins in Supabase Authentication, then edit their full name here in the database. An admin invite screen can be added next.</div>`}
-let newPaymentItems=[];
 
-async function newPayment(){
-  const {data:workers,error}=await sb.from('profiles').select('id,full_name').eq('role','worker').eq('active',true).order('full_name');
-  if(error)return alert(error.message);
-
-  newPaymentItems=[];
-
-  modalTitle.textContent='Add payment';
+function showInviteWorker(){
+  modalTitle.textContent='Add / Invite Worker';
   modalBody.innerHTML=`
-    <div class="form-grid">
-      <div class="field"><label>Worker</label><select id="npWorker">${workers.map(w=>`<option value="${w.id}">${esc(w.full_name)}</option>`).join('')}</select></div>
-      <div class="field"><label>Site</label><input id="npSite"></div>
-      <div class="field"><label>Week ending</label><input id="npWeek" type="date"></div>
-      <div class="field"><label>Payment status</label>
-        <select id="npStatus">
-          <option>Awaiting Payment</option>
-          <option>Part Paid</option>
-          <option>Paid</option>
-          <option>Disputed</option>
+    <div class="notice">
+      Choose how to create the worker. Email invite is best for normal use. Temporary password is useful for testing or if email delivery is unavailable.
+    </div>
+
+    <div class="form-grid" style="margin-top:16px">
+      <div class="field">
+        <label>Worker name</label>
+        <input id="iwName" placeholder="e.g. John Smith">
+      </div>
+
+      <div class="field">
+        <label>Email address</label>
+        <input id="iwEmail" type="email" placeholder="john@example.com">
+      </div>
+
+      <div class="field full">
+        <label>Account setup method</label>
+        <select id="iwMethod" onchange="toggleInviteMethod()">
+          <option value="invite">Send email invite</option>
+          <option value="temporary_password">Create with temporary password</option>
         </select>
       </div>
-      <div class="field"><label>CIS</label><input id="npCis" type="number" step="0.01" value="0"></div>
-      <div class="field"><label>Retention</label><input id="npRet" type="number" step="0.01" value="0"></div>
-      <div class="field"><label>Net statement</label><input id="npNet" type="number" step="0.01" value="0"></div>
-    </div>
 
-    <div class="section-title" style="margin-top:22px">
-      <h3>Payment Items</h3>
-      <button class="btn success small" type="button" onclick="addDraftPaymentItem()">➕ Add Item</button>
-    </div>
-
-    <div id="draftItemsWrap"></div>
-
-    <div class="notice" style="margin-top:14px">
-      Add as many items as you need before publishing. For example: Plot 486 3rd Lift, DW-123, Garden Wall Plot 72, etc.
+      <div id="iwTempPasswordWrap" class="field full hidden">
+        <label>Temporary password</label>
+        <input id="iwTempPassword" type="text" placeholder="At least 8 characters">
+        <div class="meta" style="margin-top:6px">Give this to the worker securely. They can later use Forgot password? to set their own password.</div>
+      </div>
     </div>
 
     <div class="row" style="margin-top:16px">
-      <button class="btn success" onclick="saveNewPayment()">Publish Payment</button>
+      <button id="iwSubmitBtn" class="btn success" onclick="createWorkerAccount()">Send Invite</button>
       <button class="btn secondary" onclick="closeModal()">Cancel</button>
-    </div>`;
-  renderDraftPaymentItems();
+    </div>
+
+    <p id="iwMessage"></p>`;
   showModal();
+  toggleInviteMethod();
+}
+
+function toggleInviteMethod(){
+  const method=document.getElementById('iwMethod')?.value || 'invite';
+  const wrap=document.getElementById('iwTempPasswordWrap');
+  const btn=document.getElementById('iwSubmitBtn');
+
+  if(method==='temporary_password'){
+    wrap?.classList.remove('hidden');
+    if(btn) btn.textContent='Create Worker';
+  }else{
+    wrap?.classList.add('hidden');
+    if(btn) btn.textContent='Send Invite';
+  }
+}
+
+async function createWorkerAccount(){
+  const name=document.getElementById('iwName').value.trim();
+  const emailAddress=document.getElementById('iwEmail').value.trim().toLowerCase();
+  const method=document.getElementById('iwMethod').value;
+  const tempPassword=document.getElementById('iwTempPassword')?.value || '';
+  const msg=document.getElementById('iwMessage');
+  const btn=document.getElementById('iwSubmitBtn');
+
+  msg.textContent='';
+  msg.style.color='var(--muted)';
+
+  if(!name || !emailAddress){
+    msg.style.color='#a72b32';
+    msg.textContent='Name and email are required.';
+    return;
+  }
+
+  if(method==='temporary_password' && tempPassword.length < 8){
+    msg.style.color='#a72b32';
+    msg.textContent='Temporary password must be at least 8 characters.';
+    return;
+  }
+
+  btn.disabled=true;
+  btn.textContent='Working…';
+
+  const {data:{session:currentSession}}=await sb.auth.getSession();
+  if(!currentSession){
+    msg.style.color='#a72b32';
+    msg.textContent='Your login session has expired. Please log in again.';
+    btn.disabled=false;
+    toggleInviteMethod();
+    return;
+  }
+
+  const {data,error}=await sb.functions.invoke('create-worker',{
+    body:{
+      full_name:name,
+      email:emailAddress,
+      method,
+      temporary_password:method==='temporary_password'?tempPassword:null,
+      redirect_to:'https://portal.tallytrowel.com'
+    }
+  });
+
+  btn.disabled=false;
+  toggleInviteMethod();
+
+  if(error){
+    msg.style.color='#a72b32';
+    msg.textContent=error.message || 'Could not create the worker.';
+    return;
+  }
+
+  if(!data?.ok){
+    msg.style.color='#a72b32';
+    msg.textContent=data?.error || 'Could not create the worker.';
+    return;
+  }
+
+  await logActivity(
+    method==='invite'?'WORKER_INVITED':'WORKER_CREATED',
+    `${name} (${emailAddress})`,
+    'worker',
+    data.user_id || null
+  );
+
+  msg.style.color='var(--green)';
+  msg.textContent=method==='invite'
+    ? 'Invite sent successfully.'
+    : 'Worker account created successfully.';
+
+  setTimeout(()=>{
+    closeModal();
+    workersPage();
+  },900);
+}
+
+async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
+async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
+async function workersPage(){
+  const {data,error}=await sb
+    .from('profiles')
+    .select('*')
+    .eq('role','worker')
+    .order('full_name');
+
+  if(error){
+    content.innerHTML=`<div class="card">${esc(error.message)}</div>`;
+    return;
+  }
+
+  content.innerHTML=`
+    <div class="hero">
+      <h2>Workers</h2>
+      <p>Create worker accounts and manage who can access the TallyTrowel Portal.</p>
+    </div>
+
+    <div class="section-title">
+      <h3>Worker Accounts</h3>
+      <button class="btn success small" onclick="showInviteWorker()">➕ Add / Invite Worker</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Role</th>
+            <th>User ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(data||[]).map(w=>`
+            <tr>
+              <td><strong>${esc(w.full_name||'Unnamed worker')}</strong></td>
+              <td>${w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>'}</td>
+              <td>${esc(w.role)}</td>
+              <td style="font-family:monospace;font-size:12px">${esc(w.id)}</td>
+            </tr>`).join('') || `<tr><td colspan="4">No workers yet.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notice" style="margin-top:16px">
+      Worker account creation is handled by a secure Supabase Edge Function. Your service-role key never appears in the website.
+    </div>`;
 }
 
 function renderDraftPaymentItems(){
