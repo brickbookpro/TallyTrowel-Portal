@@ -167,7 +167,7 @@ async function requestPasswordReset(){
     return;
   }
 
-  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const redirectTo = `${window.location.origin}${window.location.pathname}?recovery=1`;
 
   const {error}=await sb.auth.resetPasswordForEmail(address,{redirectTo});
 
@@ -179,6 +179,22 @@ async function requestPasswordReset(){
 
   recoveryMessage.style.color='var(--green)';
   recoveryMessage.textContent='If an account exists for that email, a password reset link has been sent.';
+}
+
+function isRecoveryRoute(){
+  const params=new URLSearchParams(window.location.search);
+  return params.get('recovery')==='1'
+      || window.location.hash.includes('type=recovery');
+}
+
+function showNewPasswordScreen(){
+  loginView.classList.add('hidden');
+  appView.classList.add('hidden');
+  recoveryView.classList.remove('hidden');
+  recoveryRequestPanel.classList.add('hidden');
+  newPasswordPanel.classList.remove('hidden');
+  recoveryTitle.textContent='Choose a new password';
+  newPasswordMessage.textContent='';
 }
 
 async function saveNewPassword(){
@@ -207,56 +223,62 @@ async function saveNewPassword(){
   }
 
   await logActivity('PASSWORD_CHANGED','User changed their password after recovery');
+
   newPasswordMessage.style.color='var(--green)';
-  newPasswordMessage.textContent='Password changed successfully. You can now continue into the portal.';
+  newPasswordMessage.textContent='Password changed successfully. Opening your portal…';
 
   setTimeout(async ()=>{
-    await 
-sb.auth.onAuthStateChange(async (event,newSession)=>{
-  session=newSession;
-
-  if(event==='PASSWORD_RECOVERY'){
-    loginView.classList.add('hidden');
-    appView.classList.add('hidden');
-    recoveryView.classList.remove('hidden');
-    recoveryRequestPanel.classList.add('hidden');
-    newPasswordPanel.classList.remove('hidden');
-    recoveryTitle.textContent='Choose a new password';
-  }
-});
-
-boot();
+    history.replaceState({},'',window.location.pathname);
     recoveryView.classList.add('hidden');
-  },400);
+    await boot();
+  },700);
 }
 
 async function signIn(){
   document.getElementById('loginError').textContent='';
-  const {data,error}=await sb.auth.signInWithPassword({email:email.value.trim(),password:password.value});
-  if(error){document.getElementById('loginError').textContent=error.message;return}
-  session=data.session; await logActivity('LOGIN_SUCCESS','Successful portal login'); await 
-sb.auth.onAuthStateChange(async (event,newSession)=>{
-  session=newSession;
 
-  if(event==='PASSWORD_RECOVERY'){
-    loginView.classList.add('hidden');
-    appView.classList.add('hidden');
-    recoveryView.classList.remove('hidden');
-    recoveryRequestPanel.classList.add('hidden');
-    newPasswordPanel.classList.remove('hidden');
-    recoveryTitle.textContent='Choose a new password';
+  const {data,error}=await sb.auth.signInWithPassword({
+    email:email.value.trim(),
+    password:password.value
+  });
+
+  if(error){
+    document.getElementById('loginError').textContent=error.message;
+    return;
   }
-});
 
-boot();
+  session=data.session;
+  await logActivity('LOGIN_SUCCESS','Successful portal login');
+  await boot();
 }
+
 async function signOut(){
   await logActivity('LOGOUT','User logged out of the portal');
   await sb.auth.signOut();
   location.reload();
 }
+
 async function boot(){
-  const {data:{session:s}}=await sb.auth.getSession();session=s;
+  const {data:{session:s}}=await sb.auth.getSession();
+  session=s;
+
+  if(isRecoveryRoute()){
+    loginView.classList.add('hidden');
+    appView.classList.add('hidden');
+    recoveryView.classList.remove('hidden');
+
+    if(session){
+      const {data:p}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
+      if(p) profile=p;
+      showNewPasswordScreen();
+    }else{
+      recoveryRequestPanel.classList.add('hidden');
+      newPasswordPanel.classList.add('hidden');
+      recoveryTitle.textContent='Opening password reset…';
+    }
+    return;
+  }
+
   if(!session){
     loginView.classList.remove('hidden');
     recoveryView.classList.add('hidden');
@@ -265,19 +287,12 @@ async function boot(){
   }
 
   const {data:p,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
-  if(error){alert(error.message);return}
-  profile=p;
-
-  if(window.location.hash.includes('type=recovery')){
-    loginView.classList.add('hidden');
-    appView.classList.add('hidden');
-    recoveryView.classList.remove('hidden');
-    recoveryRequestPanel.classList.add('hidden');
-    newPasswordPanel.classList.remove('hidden');
-    recoveryTitle.textContent='Choose a new password';
+  if(error){
+    alert(error.message);
     return;
   }
 
+  profile=p;
   loginView.classList.add('hidden');
   recoveryView.classList.add('hidden');
   appView.classList.remove('hidden');
@@ -861,16 +876,11 @@ async function securityPage(){
 }
 function showModal(){modal.classList.remove('hidden')}function closeModal(){modal.classList.add('hidden')}
 
-sb.auth.onAuthStateChange(async (event,newSession)=>{
+sb.auth.onAuthStateChange((event,newSession)=>{
   session=newSession;
 
-  if(event==='PASSWORD_RECOVERY'){
-    loginView.classList.add('hidden');
-    appView.classList.add('hidden');
-    recoveryView.classList.remove('hidden');
-    recoveryRequestPanel.classList.add('hidden');
-    newPasswordPanel.classList.remove('hidden');
-    recoveryTitle.textContent='Choose a new password';
+  if(event==='PASSWORD_RECOVERY' || (isRecoveryRoute() && newSession)){
+    showNewPasswordScreen();
   }
 });
 
