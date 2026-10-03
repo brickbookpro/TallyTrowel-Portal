@@ -340,7 +340,7 @@ async function boot(){
 function renderShell(){
   topName.textContent=profile.full_name||session.user.email;sideName.textContent=profile.full_name||session.user.email;sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
   const items=profile.role==='admin'
-    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity']]
+    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
     : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['details','👤 My Details']];
   nav.innerHTML=items.map(([id,l])=>`<button class="navbtn ${page===id?'active':''}" onclick="go('${id}')">${l}</button>`).join('');
   renderPage();
@@ -353,6 +353,7 @@ async function renderPage(){
     if(page==='queries')return adminQueries();
     if(page==='workers')return workersPage();
     if(page==='security')return securityPage();
+    if(page==='backup')return backupRestorePage();
   }else{
     if(page==='dashboard')return workerDashboard();
     if(page==='payments')return workerPayments();
@@ -944,6 +945,126 @@ async function myDetailsPage(){
     <div class="notice" style="margin-top:16px">
       If any of these details are incorrect, contact your administrator to have them updated.
     </div>`;
+}
+
+
+async function backupRestorePage(){
+  content.innerHTML=`
+    <div class="hero">
+      <h2>Backup & Restore</h2>
+      <p>Create a master backup of the TallyTrowel Portal database or safely restore a previous backup.</p>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
+      <div class="card">
+        <h3 style="margin-top:0">Create Master Backup</h3>
+        <p>Downloads one JSON file containing the portal's core database records.</p>
+        <div class="notice" style="margin:14px 0">
+          Includes workers, payments, payment items, payment history, queries, messages and activity history.
+        </div>
+        <button class="btn success" onclick="createMasterBackup()">⬇ Download Master Backup</button>
+        <p id="backupStatus" class="meta" style="margin-top:12px"></p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Restore Master Backup</h3>
+        <p>Safely merges a previous TallyTrowel backup back into the live portal.</p>
+        <div class="notice" style="margin:14px 0">
+          Matching records are updated and missing records are restored. Current records that are not in the backup are not deleted.
+        </div>
+        <input id="restoreFile" type="file" accept=".json,application/json">
+        <div class="row" style="margin-top:14px">
+          <button class="btn danger" onclick="restoreMasterBackup()">↥ Restore Backup</button>
+        </div>
+        <p id="restoreStatus" class="meta" style="margin-top:12px"></p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">What is not included?</h3>
+      <p class="meta">
+        Supabase login passwords, API/secret keys and authentication provider secrets are deliberately not included.
+        Worker Auth accounts remain protected inside Supabase Authentication.
+      </p>
+    </div>`;
+}
+
+async function createMasterBackup(){
+  const status=document.getElementById('backupStatus');
+  status.textContent='Creating secure backup…';
+  status.style.color='var(--muted)';
+
+  try{
+    const {data,error}=await sb.functions.invoke('portal-backup',{
+      body:{action:'backup'}
+    });
+
+    if(error)throw error;
+    if(!data?.ok)throw new Error(data?.error||'Backup failed.');
+
+    const backup=data.backup;
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+    const filename=`TallyTrowel_Portal_Master_Backup_${stamp}.json`;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    await logActivity('MASTER_BACKUP_CREATED',`Created ${filename}`);
+    status.style.color='var(--green)';
+    status.textContent=`Backup created successfully (${data.record_count||0} records).`;
+  }catch(err){
+    status.style.color='#a72b32';
+    status.textContent=err.message||'Backup failed.';
+  }
+}
+
+async function restoreMasterBackup(){
+  const input=document.getElementById('restoreFile');
+  const status=document.getElementById('restoreStatus');
+
+  if(!input.files?.[0]){
+    status.style.color='#a72b32';
+    status.textContent='Choose a TallyTrowel backup file first.';
+    return;
+  }
+
+  if(!confirm('Restore this backup? Matching records will be updated and missing records will be restored.')){
+    return;
+  }
+
+  status.style.color='var(--muted)';
+  status.textContent='Reading backup…';
+
+  try{
+    const text=await input.files[0].text();
+    const backup=JSON.parse(text);
+
+    if(backup?.product!=='TallyTrowel Portal' || backup?.format_version!==1 || !backup?.tables){
+      throw new Error('This is not a valid TallyTrowel Portal master backup.');
+    }
+
+    status.textContent='Restoring backup securely…';
+
+    const {data,error}=await sb.functions.invoke('portal-backup',{
+      body:{action:'restore',backup}
+    });
+
+    if(error)throw error;
+    if(!data?.ok)throw new Error(data?.error||'Restore failed.');
+
+    await logActivity('MASTER_BACKUP_RESTORED',`Restored ${data.record_count||0} records from master backup`);
+    status.style.color='var(--green)';
+    status.textContent=`Restore completed successfully (${data.record_count||0} records processed).`;
+  }catch(err){
+    status.style.color='#a72b32';
+    status.textContent=err.message||'Restore failed.';
+  }
 }
 
 async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
