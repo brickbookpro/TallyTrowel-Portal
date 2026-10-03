@@ -341,7 +341,7 @@ function renderShell(){
   topName.textContent=profile.full_name||session.user.email;sideName.textContent=profile.full_name||session.user.email;sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
   const items=profile.role==='admin'
     ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity']]
-    : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries']];
+    : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['details','👤 My Details']];
   nav.innerHTML=items.map(([id,l])=>`<button class="navbtn ${page===id?'active':''}" onclick="go('${id}')">${l}</button>`).join('');
   renderPage();
 }
@@ -357,6 +357,7 @@ async function renderPage(){
     if(page==='dashboard')return workerDashboard();
     if(page==='payments')return workerPayments();
     if(page==='queries')return workerQueries();
+    if(page==='details')return myDetailsPage();
   }
 }
 function stat(l,v){return `<div class="card stat"><small>${esc(l)}</small><strong>${v}</strong></div>`}
@@ -759,6 +760,192 @@ async function createWorkerAccount(){
   },900);
 }
 
+
+async function showWorkerDetails(id){
+  const {data:w,error}=await sb.from('profiles').select('*').eq('id',id).single();
+  if(error)return alert(error.message);
+
+  modalTitle.textContent=`Worker Details • ${w.full_name||'Worker'}`;
+  modalBody.innerHTML=`
+    <div class="form-grid">
+      <div class="field">
+        <label>Full name</label>
+        <input id="wdName" value="${esc(w.full_name||'')}">
+      </div>
+
+      <div class="field">
+        <label>Contact email</label>
+        <input id="wdEmail" type="email" value="${esc(w.contact_email||'')}" placeholder="worker@example.com">
+        <div class="meta" style="margin-top:5px">Contact record only. This does not change their Supabase login email.</div>
+      </div>
+
+      <div class="field">
+        <label>Phone number</label>
+        <input id="wdPhone" value="${esc(w.phone||'')}" placeholder="e.g. 07123 456789">
+      </div>
+
+      <div class="field">
+        <label>Start date</label>
+        <input id="wdStartDate" type="date" value="${esc(w.start_date||'')}">
+      </div>
+
+      <div class="field full">
+        <label>Address line 1</label>
+        <input id="wdAddress1" value="${esc(w.address_line1||'')}">
+      </div>
+
+      <div class="field full">
+        <label>Address line 2</label>
+        <input id="wdAddress2" value="${esc(w.address_line2||'')}">
+      </div>
+
+      <div class="field">
+        <label>Town / City</label>
+        <input id="wdTown" value="${esc(w.town_city||'')}">
+      </div>
+
+      <div class="field">
+        <label>County</label>
+        <input id="wdCounty" value="${esc(w.county||'')}">
+      </div>
+
+      <div class="field">
+        <label>Postcode</label>
+        <input id="wdPostcode" value="${esc(w.postcode||'')}">
+      </div>
+
+      <div class="field">
+        <label>Account status</label>
+        <select id="wdActive">
+          <option value="true" ${w.active?'selected':''}>Active</option>
+          <option value="false" ${!w.active?'selected':''}>Inactive</option>
+        </select>
+      </div>
+
+      <div class="field full">
+        <label>Admin notes</label>
+        <textarea id="wdNotes" rows="5" placeholder="Internal notes about this worker">${esc(w.notes||'')}</textarea>
+        <div class="meta" style="margin-top:5px">These notes are for administrators and are not shown on the worker's My Details page.</div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:18px">
+      <button class="btn success" onclick="saveWorkerDetails('${w.id}')">Save Worker</button>
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+    </div>
+
+    <p id="wdMessage"></p>`;
+  showModal();
+}
+
+async function saveWorkerDetails(id){
+  const msg=document.getElementById('wdMessage');
+  msg.textContent='Saving…';
+  msg.style.color='var(--muted)';
+
+  const updates={
+    full_name:document.getElementById('wdName').value.trim(),
+    contact_email:document.getElementById('wdEmail').value.trim().toLowerCase()||null,
+    phone:document.getElementById('wdPhone').value.trim()||null,
+    start_date:document.getElementById('wdStartDate').value||null,
+    address_line1:document.getElementById('wdAddress1').value.trim()||null,
+    address_line2:document.getElementById('wdAddress2').value.trim()||null,
+    town_city:document.getElementById('wdTown').value.trim()||null,
+    county:document.getElementById('wdCounty').value.trim()||null,
+    postcode:document.getElementById('wdPostcode').value.trim().toUpperCase()||null,
+    active:document.getElementById('wdActive').value==='true',
+    notes:document.getElementById('wdNotes').value.trim()||null
+  };
+
+  if(!updates.full_name){
+    msg.style.color='#a72b32';
+    msg.textContent='Worker name is required.';
+    return;
+  }
+
+  const {error}=await sb.from('profiles').update(updates).eq('id',id);
+  if(error){
+    msg.style.color='#a72b32';
+    msg.textContent=error.message;
+    return;
+  }
+
+  await logActivity('WORKER_UPDATED',`Updated worker profile: ${updates.full_name}`,'worker',id);
+  msg.style.color='var(--green)';
+  msg.textContent='Worker details saved.';
+
+  setTimeout(()=>{
+    closeModal();
+    workersPage();
+  },650);
+}
+
+async function setWorkerActive(id,makeActive){
+  const action=makeActive?'reactivate':'deactivate';
+  if(!confirm(`Are you sure you want to ${action} this worker?`))return;
+
+  const {data:w,error:findError}=await sb.from('profiles').select('full_name').eq('id',id).single();
+  if(findError)return alert(findError.message);
+
+  const {error}=await sb.from('profiles').update({active:makeActive}).eq('id',id);
+  if(error)return alert(error.message);
+
+  await logActivity(
+    makeActive?'WORKER_REACTIVATED':'WORKER_DEACTIVATED',
+    `${makeActive?'Reactivated':'Deactivated'} worker: ${w.full_name||id}`,
+    'worker',
+    id
+  );
+
+  workersPage();
+}
+
+async function myDetailsPage(){
+  const {data:w,error}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
+  if(error){
+    content.innerHTML=`<div class="card">${esc(error.message)}</div>`;
+    return;
+  }
+
+  const address=[
+    w.address_line1,
+    w.address_line2,
+    w.town_city,
+    w.county,
+    w.postcode
+  ].filter(Boolean);
+
+  content.innerHTML=`
+    <div class="hero">
+      <h2>My Details</h2>
+      <p>Your contact and employment details held in the TallyTrowel Portal.</p>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      <div class="card">
+        <h3 style="margin-top:0">Contact Details</h3>
+        <p><strong>Name</strong><br>${esc(w.full_name||'—')}</p>
+        <p><strong>Email</strong><br>${esc(w.contact_email||session.user.email||'—')}</p>
+        <p><strong>Phone</strong><br>${esc(w.phone||'—')}</p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Address</h3>
+        ${address.length?address.map(x=>`<div>${esc(x)}</div>`).join(''):'<p class="meta">No address has been added yet.</p>'}
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Employment</h3>
+        <p><strong>Start date</strong><br>${w.start_date?date(w.start_date):'—'}</p>
+        <p><strong>Account status</strong><br>${w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>'}</p>
+      </div>
+    </div>
+
+    <div class="notice" style="margin-top:16px">
+      If any of these details are incorrect, contact your administrator to have them updated.
+    </div>`;
+}
+
 async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
 async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
 async function workersPage(){
@@ -776,7 +963,7 @@ async function workersPage(){
   content.innerHTML=`
     <div class="hero">
       <h2>Workers</h2>
-      <p>Create worker accounts and manage who can access the TallyTrowel Portal.</p>
+      <p>Manage worker accounts, contact information and access to the TallyTrowel Portal.</p>
     </div>
 
     <div class="section-title">
@@ -789,25 +976,39 @@ async function workersPage(){
         <thead>
           <tr>
             <th>Name</th>
+            <th>Contact</th>
+            <th>Start Date</th>
             <th>Status</th>
-            <th>Role</th>
-            <th>User ID</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
           ${(data||[]).map(w=>`
             <tr>
-              <td><strong>${esc(w.full_name||'Unnamed worker')}</strong></td>
+              <td>
+                <strong>${esc(w.full_name||'Unnamed worker')}</strong>
+                ${w.town_city||w.postcode?`<div class="meta">${esc([w.town_city,w.postcode].filter(Boolean).join(' • '))}</div>`:''}
+              </td>
+              <td>
+                ${w.phone?`<div>${esc(w.phone)}</div>`:''}
+                ${w.contact_email?`<div class="meta">${esc(w.contact_email)}</div>`:''}
+                ${!w.phone&&!w.contact_email?'<span class="meta">No contact details</span>':''}
+              </td>
+              <td>${w.start_date?date(w.start_date):'<span class="meta">—</span>'}</td>
               <td>${w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>'}</td>
-              <td>${esc(w.role)}</td>
-              <td style="font-family:monospace;font-size:12px">${esc(w.id)}</td>
-            </tr>`).join('') || `<tr><td colspan="4">No workers yet.</td></tr>`}
+              <td>
+                <div class="row">
+                  <button class="btn secondary small" onclick="showWorkerDetails('${w.id}')">View / Edit</button>
+                  <button class="btn ${w.active?'danger':'success'} small" onclick="setWorkerActive('${w.id}',${!w.active})">${w.active?'Deactivate':'Reactivate'}</button>
+                </div>
+              </td>
+            </tr>`).join('') || `<tr><td colspan="5">No workers yet.</td></tr>`}
         </tbody>
       </table>
     </div>
 
     <div class="notice" style="margin-top:16px">
-      Worker account creation is handled by a secure Supabase Edge Function. Your service-role key never appears in the website.
+      Deactivating a worker removes their active status without deleting historic wage and payment records.
     </div>`;
 }
 
