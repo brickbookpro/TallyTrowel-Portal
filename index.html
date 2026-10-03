@@ -421,6 +421,15 @@ async function getPayments(){
   const {data,error}=await q;if(error)throw error;return data||[];
 }
 function totals(p){return (p.payment_items||[]).reduce((a,i)=>({booked:a.booked+Number(i.booked_amount||0),paid:a.paid+Number(i.paid_amount||0)}),{booked:0,paid:0})}
+function calcCisDeduction(paidTotal,cisRate){
+  const paid=Math.max(0,Number(paidTotal||0));
+  const rate=Math.max(0,Number(cisRate||0));
+  return Math.round((paid*(rate/100))*100)/100;
+}
+function calcNetStatement(paidTotal,cisDeduction,retention){
+  return Math.round(Math.max(0,Number(paidTotal||0)-Number(cisDeduction||0)-Number(retention||0))*100)/100;
+}
+
 
 async function workerDashboard(){
   try{
@@ -437,6 +446,7 @@ function paymentCard(p){
   <div class="money-grid">${money('Booked / Expected',t.booked)}${money('Actually Paid',t.paid)}${money('Difference',Math.max(0,t.booked-t.paid))}${money('Net Statement',p.net_statement)}</div>
   <div class="row">
     <button class="btn primary small" onclick="openPayment('${p.id}')">View breakdown</button>
+    ${profile.role==='admin'?`<button class="btn secondary small" onclick="editPaymentDetails('${p.id}')">✏ Edit</button>`:''}
     <button class="btn success small" onclick="downloadPaymentStatement('${p.id}')">⬇ PDF Statement</button>
   </div></div>`;
 }
@@ -449,13 +459,128 @@ async function openPayment(id){
   </tbody></table></div>
   ${profile.role==='worker'
     ? `<button class="btn danger" style="margin-top:14px" onclick="startQuery('${p.id}')">Query this payment</button>`
-    : `<button class="btn success" style="margin-top:14px" onclick="addItemToExistingPayment('${p.id}')">➕ Add another item</button>`}`;
+    : `<div class="row" style="margin-top:14px">
+         <button class="btn success" onclick="addItemToExistingPayment('${p.id}')">➕ Add another item</button>
+         <button class="btn secondary" onclick="editPaymentDetails('${p.id}')">✏ Edit Payment Details</button>
+       </div>`}`;
   modalBody.innerHTML += `
     <div class="row" style="margin-top:16px">
       <button class="btn success" onclick="downloadPaymentStatement('${p.id}')">⬇ Download Statement PDF</button>
       <button class="btn secondary" onclick="printPaymentStatement('${p.id}')">🖨 Print Statement</button>
     </div>`;
   showModal();
+}
+
+
+async function editPaymentDetails(paymentId){
+  const {data:p,error}=await sb
+    .from('payments')
+    .select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)')
+    .eq('id',paymentId)
+    .single();
+  if(error)return alert(error.message);
+
+  const t=totals(p);
+  const currentRate=Number(p.cis_rate??20);
+  const retention=Number(p.retention||0);
+  const cis=calcCisDeduction(t.paid,currentRate);
+  const net=calcNetStatement(t.paid,cis,retention);
+
+  modalTitle.textContent='Edit Payment Details';
+  modalBody.innerHTML=`
+    <div class="notice">
+      CIS is calculated automatically from the Actually Paid total. The default rate is 20%, but you can change it for this payment.
+    </div>
+    <div class="form-grid" style="margin-top:14px">
+      <div class="field full"><label>Worker</label><input value="${esc(p.profiles?.full_name||'')}" disabled></div>
+      <div class="field"><label>Site</label><input id="epSite" value="${esc(p.site||'')}"></div>
+      <div class="field"><label>Week ending</label><input id="epWeek" type="date" value="${esc(p.week_ending||'')}"></div>
+      <div class="field"><label>Overall payment status</label>
+        <select id="epStatus">${['Awaiting Payment','Part Paid','Paid','Disputed','Corrected','Rejected / Unpaid'].map(x=>`<option ${x===p.status?'selected':''}>${x}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Published</label>
+        <select id="epPublished">
+          <option value="true" ${p.published?'selected':''}>Published</option>
+          <option value="false" ${!p.published?'selected':''}>Unpublished / Draft</option>
+        </select>
+      </div>
+      <div class="field"><label>Actually Paid total</label><input value="${fmt(t.paid)}" disabled></div>
+      <div class="field"><label>CIS rate (%)</label><input id="epCisRate" type="number" min="0" step="0.01" value="${currentRate}" oninput="updateEditPaymentFinancialPreview()"></div>
+      <div class="field"><label>Retention (£)</label><input id="epRetention" type="number" min="0" step="0.01" value="${retention}" oninput="updateEditPaymentFinancialPreview()"></div>
+      <div class="field"><label>CIS deduction (£)</label><input id="epCis" value="${cis.toFixed(2)}" readonly></div>
+      <div class="field"><label>Net statement (£)</label><input id="epNet" value="${net.toFixed(2)}" readonly></div>
+    </div>
+    <input id="epPaidTotal" type="hidden" value="${t.paid}">
+    <div class="row" style="margin-top:16px">
+      <button class="btn success" onclick="savePaymentDetails('${p.id}')">Save Payment</button>
+      <button class="btn secondary" onclick="openPayment('${p.id}')">Cancel</button>
+    </div>`;
+  showModal();
+}
+
+function updateEditPaymentFinancialPreview(){
+  const paid=Number(document.getElementById('epPaidTotal')?.value||0);
+  const rate=Number(document.getElementById('epCisRate')?.value||20);
+  const retention=Number(document.getElementById('epRetention')?.value||0);
+  const cis=calcCisDeduction(paid,rate);
+  const net=calcNetStatement(paid,cis,retention);
+  const cisEl=document.getElementById('epCis');
+  const netEl=document.getElementById('epNet');
+  if(cisEl)cisEl.value=cis.toFixed(2);
+  if(netEl)netEl.value=net.toFixed(2);
+}
+
+async function savePaymentDetails(paymentId){
+  const site=document.getElementById('epSite').value.trim();
+  const week=document.getElementById('epWeek').value;
+  if(!site||!week){alert('Site and week ending are required.');return;}
+
+  const paid=Number(document.getElementById('epPaidTotal').value||0);
+  const cisRate=Number(document.getElementById('epCisRate').value||20);
+  const retention=Number(document.getElementById('epRetention').value||0);
+  const cis=calcCisDeduction(paid,cisRate);
+  const net=calcNetStatement(paid,cis,retention);
+
+  const {error}=await sb.from('payments').update({
+    site,
+    week_ending:week,
+    status:document.getElementById('epStatus').value,
+    published:document.getElementById('epPublished').value==='true',
+    cis_rate:cisRate,
+    cis,
+    retention,
+    net_statement:net,
+    updated_at:new Date().toISOString()
+  }).eq('id',paymentId);
+
+  if(error)return alert(error.message);
+
+  await logActivity('PAYMENT_DETAILS_UPDATED',
+    `Updated payment details; CIS ${cisRate}% = ${fmt(cis)}; net ${fmt(net)}`,
+    'payment',paymentId);
+
+  openPayment(paymentId);
+}
+
+async function recalculatePaymentFinancials(paymentId){
+  const {data:p,error}=await sb
+    .from('payments')
+    .select('id,cis_rate,retention,payment_items(paid_amount)')
+    .eq('id',paymentId)
+    .single();
+  if(error)return;
+
+  const paid=(p.payment_items||[]).reduce((sum,i)=>sum+Number(i.paid_amount||0),0);
+  const rate=Number(p.cis_rate??20);
+  const retention=Number(p.retention||0);
+  const cis=calcCisDeduction(paid,rate);
+  const net=calcNetStatement(paid,cis,retention);
+
+  await sb.from('payments').update({
+    cis,
+    net_statement:net,
+    updated_at:new Date().toISOString()
+  }).eq('id',paymentId);
 }
 
 async function addItemToExistingPayment(paymentId){
@@ -518,6 +643,7 @@ async function saveItemToExistingPayment(paymentId){
   if(error)return alert(error.message);
 
   await logActivity('PAYMENT_ITEM_ADDED',`Added ${payload.reference} (${fmt(payload.booked_amount)})`,'payment_item',added.id);
+  await recalculatePaymentFinancials(paymentId);
   openPayment(paymentId);
   renderShell();
 }
@@ -740,7 +866,7 @@ async function downloadPaymentStatement(id){
       ['Booked / Expected',fmt(t.booked)],
       ['Actually Paid',fmt(t.paid)],
       ['Difference',fmt(Math.max(0,t.booked-t.paid))],
-      ['CIS',fmt(p.cis||0)],
+      ['CIS ('+Number(p.cis_rate??20)+'%)',fmt(p.cis||0)],
       ['Retention',fmt(p.retention||0)],
       ['Net Statement',fmt(p.net_statement||0)]
     ];
@@ -870,7 +996,7 @@ ${items.map(i=>`<tr>
   <div class="total"><span>Booked / Expected</span><strong>${fmt(t.booked)}</strong></div>
   <div class="total"><span>Actually Paid</span><strong>${fmt(t.paid)}</strong></div>
   <div class="total"><span>Difference</span><strong>${fmt(Math.max(0,t.booked-t.paid))}</strong></div>
-  <div class="total"><span>CIS</span><strong>${fmt(p.cis||0)}</strong></div>
+  <div class="total"><span>CIS (${Number(p.cis_rate??20)}%)</span><strong>${fmt(p.cis||0)}</strong></div>
   <div class="total"><span>Retention</span><strong>${fmt(p.retention||0)}</strong></div>
   <div class="total"><span>Net Statement</span><strong>${fmt(p.net_statement||0)}</strong></div>
 </div>
@@ -1958,18 +2084,23 @@ async function newPayment(){
       </div>
 
       <div class="field">
-        <label>CIS</label>
-        <input id="npCis" type="number" step="0.01" value="0">
+        <label>CIS rate (%)</label>
+        <input id="npCisRate" type="number" step="0.01" min="0" value="20" oninput="updateNewPaymentFinancialPreview()">
       </div>
 
       <div class="field">
-        <label>Retention</label>
-        <input id="npRet" type="number" step="0.01" value="0">
+        <label>Retention (£)</label>
+        <input id="npRet" type="number" step="0.01" min="0" value="0" oninput="updateNewPaymentFinancialPreview()">
       </div>
 
       <div class="field">
-        <label>Net statement</label>
-        <input id="npNet" type="number" step="0.01" value="0">
+        <label>CIS deduction (£)</label>
+        <input id="npCis" type="number" step="0.01" value="0" readonly>
+      </div>
+
+      <div class="field">
+        <label>Net statement (£)</label>
+        <input id="npNet" type="number" step="0.01" value="0" readonly>
       </div>
     </div>
 
@@ -1991,7 +2122,21 @@ async function newPayment(){
 
   window._newPaymentParentHtml=modalBody.innerHTML;
   renderDraftPaymentItems();
+  updateNewPaymentFinancialPreview();
   showModal();
+}
+
+
+function updateNewPaymentFinancialPreview(){
+  const paidTotal=newPaymentItems.reduce((sum,i)=>sum+Number(i.paid_amount||0),0);
+  const rate=Number(document.getElementById('npCisRate')?.value||20);
+  const retention=Number(document.getElementById('npRet')?.value||0);
+  const cis=calcCisDeduction(paidTotal,rate);
+  const net=calcNetStatement(paidTotal,cis,retention);
+  const cisEl=document.getElementById('npCis');
+  const netEl=document.getElementById('npNet');
+  if(cisEl)cisEl.value=cis.toFixed(2);
+  if(netEl)netEl.value=net.toFixed(2);
 }
 
 function renderDraftPaymentItems(){
@@ -2042,6 +2187,7 @@ function renderDraftPaymentItems(){
         </tfoot>
       </table>
     </div>`;
+  updateNewPaymentFinancialPreview();
 }
 
 function addDraftPaymentItem(){
@@ -2152,13 +2298,20 @@ async function saveNewPayment(){
     return;
   }
 
+  const paidTotal=newPaymentItems.reduce((sum,i)=>sum+Number(i.paid_amount||0),0);
+  const cisRate=Number(document.getElementById('npCisRate').value||20);
+  const retention=Number(document.getElementById('npRet').value||0);
+  const cis=calcCisDeduction(paidTotal,cisRate);
+  const net=calcNetStatement(paidTotal,cis,retention);
+
   const paymentPayload={
     worker_id:workerId,
     site,
     week_ending:week,
-    cis:Number(document.getElementById('npCis').value||0),
-    retention:Number(document.getElementById('npRet').value||0),
-    net_statement:Number(document.getElementById('npNet').value||0),
+    cis_rate:cisRate,
+    cis,
+    retention,
+    net_statement:net,
     status:document.getElementById('npStatus').value,
     published:true
   };
@@ -2204,6 +2357,7 @@ async function saveItem(itemId,paymentId){
   const r=await sb.from('payment_items').update({booked_amount:Number(eiBooked.value||0),paid_amount:Number(eiPaid.value||0),status:eiStatus.value,note:eiNote.value.trim(),updated_at:new Date().toISOString()}).eq('id',itemId);
   if(r.error)return alert(r.error.message);
   await logActivity('PAYMENT_ITEM_UPDATED',`Item changed to ${eiStatus.value}; paid ${fmt(Number(eiPaid.value||0))}`,'payment_item',itemId);
+  await recalculatePaymentFinancials(paymentId);
   openPayment(paymentId);
   renderShell();
 }
