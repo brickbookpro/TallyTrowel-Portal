@@ -25,6 +25,12 @@
 .field label{display:block;font-weight:800;font-size:13px;margin-bottom:6px}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 11px}.field textarea{min-height:100px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.full{grid-column:1/-1}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .modal{position:fixed;inset:0;background:rgba(7,20,33,.55);display:grid;place-items:center;padding:18px;z-index:50}.modal-card{background:#fff;width:min(820px,100%);max-height:90vh;overflow:auto;border-radius:16px;padding:20px}.modal-head{display:flex;justify-content:space-between;align-items:center}.message{border:1px solid var(--line);border-radius:11px;padding:12px;margin:9px 0}.message.admin{background:#eef6fb}.meta{font-size:12px;color:var(--muted);margin-bottom:4px}.notice{background:#fff6dd;border:1px solid #efd59b;border-radius:10px;padding:12px;color:#6e5318}
 @media(max-width:900px){.shell{grid-template-columns:1fr}.sidebar{display:flex;gap:6px;overflow:auto;padding:10px}.side-user{display:none}.navbtn{white-space:nowrap;width:auto}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.main{padding:14px}.stats,.form-grid,.money-grid{grid-template-columns:1fr}}
+
+.nav-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;margin-left:auto;border-radius:999px;background:#f2b84b;color:#17212b;font-size:12px;font-weight:800}
+.filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:0 0 16px}
+.filterbar .field{margin:0;min-width:180px;flex:1}
+.filterbar .field.compact{flex:0 1 220px}
+.result-count{font-size:13px;color:var(--muted);margin:8px 0 0}
 </style>
 </head>
 <body>
@@ -350,13 +356,40 @@ async function boot(){
   renderShell();
 }
 function renderShell(){
-  topName.textContent=profile.full_name||session.user.email;sideName.textContent=profile.full_name||session.user.email;sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
+  topName.textContent=profile.full_name||session.user.email;
+  sideName.textContent=profile.full_name||session.user.email;
+  sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
+
   const items=profile.role==='admin'
     ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
     : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['details','👤 My Details']];
-  nav.innerHTML=items.map(([id,l])=>`<button class="navbtn ${page===id?'active':''}" onclick="go('${id}')">${l}</button>`).join('');
+
+  nav.innerHTML=items.map(([id,l])=>`
+    <button id="nav-${id}" class="navbtn ${page===id?'active':''}" onclick="go('${id}')">
+      <span>${l}</span>
+      ${id==='queries'&&profile.role==='admin'?'<span id="queryNavCount" class="nav-count hidden">0</span>':''}
+    </button>`).join('');
+
   renderPage();
+
+  if(profile.role==='admin')refreshAdminQueryBadge();
 }
+async function refreshAdminQueryBadge(){
+  const badge=document.getElementById('queryNavCount');
+  if(!badge || profile?.role!=='admin')return;
+
+  const {count,error}=await sb
+    .from('payment_queries')
+    .select('id',{count:'exact',head:true})
+    .neq('status','Resolved');
+
+  if(error)return;
+
+  const n=count||0;
+  badge.textContent=String(n);
+  badge.classList.toggle('hidden',n===0);
+}
+
 function go(p){page=p;renderShell()}
 async function renderPage(){
   if(profile.role==='admin'){
@@ -605,7 +638,83 @@ function queryTable(qs){
   return `<div class="table-wrap"><table><thead><tr><th>Worker</th><th>Payment</th><th>Status</th><th>Action</th></tr></thead><tbody>${qs.map(q=>`<tr><td>${esc(q.profiles?.full_name||profile.full_name)}</td><td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td><td><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td><td><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td></tr>`).join('')}</tbody></table></div>`
 }
 async function workerQueries(){const qs=await getQueries();content.innerHTML=`<div class="hero"><h2>My Queries</h2><p>Messages you have raised about your wages.</p></div>${queryTable(qs)}`}
-async function adminQueries(){const qs=await getQueries();content.innerHTML=`<div class="hero"><h2>Payment Queries</h2><p>Review and resolve worker questions.</p></div>${queryTable(qs)}`}
+async function adminQueries(){
+  const qs=await getQueries();
+  const openCount=qs.filter(q=>q.status==='Open').length;
+  const reviewingCount=qs.filter(q=>q.status==='Reviewing').length;
+  const resolvedCount=qs.filter(q=>q.status==='Resolved').length;
+
+  content.innerHTML=`
+    <div class="hero"><h2>Payment Queries</h2><p>Review worker questions and quickly find anything still needing attention.</p></div>
+    <div class="grid stats" style="margin-bottom:16px">
+      ${stat('Open',openCount)}
+      ${stat('Reviewing',reviewingCount)}
+      ${stat('Resolved',resolvedCount)}
+      ${stat('Needs Attention',openCount+reviewingCount)}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="filterbar">
+        <div class="field">
+          <label>Search queries</label>
+          <input id="querySearch" placeholder="Worker, site or latest message…" oninput="filterAdminQueries()">
+        </div>
+        <div class="field compact">
+          <label>Status</label>
+          <select id="queryStatusFilter" onchange="filterAdminQueries()">
+            <option value="attention">Needs attention</option>
+            <option value="">All statuses</option>
+            <option value="open">Open</option>
+            <option value="reviewing">Reviewing</option>
+            <option value="resolved">Resolved</option>
+          </select>
+        </div>
+      </div>
+      <div id="queryResultCount" class="result-count"></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Worker</th><th>Payment</th><th>Latest Message</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+          ${qs.map(q=>{
+            const msgs=[...(q.query_messages||[])].sort((a,b)=>a.created_at.localeCompare(b.created_at));
+            const latest=msgs[msgs.length-1];
+            const latestText=latest?.message||'';
+            const searchText=`${q.profiles?.full_name||''} ${q.payments?.site||''} ${latestText}`.toLowerCase();
+            return `<tr class="query-filter-row" data-search="${esc(searchText)}" data-status="${esc((q.status||'').toLowerCase())}">
+              <td>${esc(q.profiles?.full_name||'')}</td>
+              <td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td>
+              <td>${latestText?`${esc(latestText.slice(0,90))}${latestText.length>90?'…':''}`:'<span class="meta">No message</span>'}</td>
+              <td><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td>
+              <td><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="5">No payment queries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+
+  filterAdminQueries();
+}
+
+function filterAdminQueries(){
+  const search=(document.getElementById('querySearch')?.value||'').trim().toLowerCase();
+  const status=document.getElementById('queryStatusFilter')?.value??'attention';
+  const rows=[...document.querySelectorAll('.query-filter-row')];
+  let visible=0;
+
+  rows.forEach(row=>{
+    const rowStatus=row.dataset.status;
+    const show=(!search||row.dataset.search.includes(search))
+      &&(status==='attention'?rowStatus!=='resolved':(!status||rowStatus===status));
+    row.classList.toggle('hidden',!show);
+    if(show)visible++;
+  });
+
+  const el=document.getElementById('queryResultCount');
+  if(el)el.textContent=`Showing ${visible} of ${rows.length} quer${rows.length===1?'y':'ies'}.`;
+}
+
 async function openQuery(id){
   const {data:q,error}=await sb.from('payment_queries').select('*, profiles!payment_queries_worker_id_fkey(full_name), payments(site,week_ending), query_messages(*)').eq('id',id).single();if(error)return alert(error.message);
   const msgs=(q.query_messages||[]).sort((a,b)=>a.created_at.localeCompare(b.created_at));
@@ -622,7 +731,10 @@ async function sendReply(qid){
   const {error}=await sb.from('query_messages').insert({query_id:qid,sender_id:session.user.id,message});
   if(error)return alert(error.message);
   await logActivity('QUERY_MESSAGE_SENT',profile.role==='admin'?'Admin replied to payment query':'Worker added message to payment query','payment_query',qid);
-  if(profile.role==='admin')await sb.from('payment_queries').update({status:'Reviewing'}).eq('id',qid).eq('status','Open');
+  if(profile.role==='admin'){
+    await sb.from('payment_queries').update({status:'Reviewing'}).eq('id',qid).eq('status','Open');
+    refreshAdminQueryBadge();
+  }
   openQuery(qid);
 }
 async function setQueryStatus(id,status){
@@ -1145,13 +1257,83 @@ async function restoreMasterBackup(){
 }
 
 async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
-async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
+async function adminPayments(){
+  const ps=await getPayments();
+
+  const workerNames=[...new Set(ps.map(p=>p.profiles?.full_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const statuses=[...new Set(ps.map(p=>p.status).filter(Boolean))].sort();
+
+  content.innerHTML=`
+    <div class="hero"><h2>Payments</h2><p>Search and filter worker payment records.</p></div>
+    <div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="filterbar">
+        <div class="field">
+          <label>Search</label>
+          <input id="paymentSearch" placeholder="Worker, site or item reference…" oninput="filterAdminPayments()">
+        </div>
+        <div class="field compact">
+          <label>Worker</label>
+          <select id="paymentWorkerFilter" onchange="filterAdminPayments()">
+            <option value="">All workers</option>
+            ${workerNames.map(n=>`<option value="${esc(n.toLowerCase())}">${esc(n)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field compact">
+          <label>Status</label>
+          <select id="paymentStatusFilter" onchange="filterAdminPayments()">
+            <option value="">All statuses</option>
+            ${statuses.map(st=>`<option value="${esc(st.toLowerCase())}">${esc(st)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field compact">
+          <label>Week ending from</label>
+          <input id="paymentFromFilter" type="date" onchange="filterAdminPayments()">
+        </div>
+      </div>
+      <div id="paymentResultCount" class="result-count"></div>
+    </div>
+
+    <div id="adminPaymentsList" class="grid">
+      ${ps.map(p=>{
+        const itemText=(p.payment_items||[]).map(i=>`${i.reference||''} ${i.description||''} ${i.type||''}`).join(' ');
+        const searchText=`${p.profiles?.full_name||''} ${p.site||''} ${p.status||''} ${itemText}`.toLowerCase();
+        return `<div class="payment-filter-row"
+          data-search="${esc(searchText)}"
+          data-worker="${esc((p.profiles?.full_name||'').toLowerCase())}"
+          data-status="${esc((p.status||'').toLowerCase())}"
+          data-week="${esc(p.week_ending||'')}">${paymentCard(p)}</div>`;
+      }).join('') || '<div class="card">No payments.</div>'}
+    </div>`;
+
+  filterAdminPayments();
+}
+
+function filterAdminPayments(){
+  const search=(document.getElementById('paymentSearch')?.value||'').trim().toLowerCase();
+  const worker=document.getElementById('paymentWorkerFilter')?.value||'';
+  const status=document.getElementById('paymentStatusFilter')?.value||'';
+  const from=document.getElementById('paymentFromFilter')?.value||'';
+
+  const rows=[...document.querySelectorAll('.payment-filter-row')];
+  let visible=0;
+
+  rows.forEach(row=>{
+    const show=(!search||row.dataset.search.includes(search))
+      &&(!worker||row.dataset.worker===worker)
+      &&(!status||row.dataset.status===status)
+      &&(!from||(row.dataset.week&&row.dataset.week>=from));
+    row.classList.toggle('hidden',!show);
+    if(show)visible++;
+  });
+
+  const el=document.getElementById('paymentResultCount');
+  if(el)el.textContent=`Showing ${visible} of ${rows.length} payment record${rows.length===1?'':'s'}.`;
+}
+
 async function workersPage(showArchived=false){
-  const query=sb
-    .from('profiles')
-    .select('*')
-    .eq('role','worker')
-    .order('full_name');
+  const query=sb.from('profiles').select('*').eq('role','worker').order('full_name');
 
   const {data,error}=showArchived
     ? await query.not('archived_at','is',null)
@@ -1166,8 +1348,8 @@ async function workersPage(showArchived=false){
     <div class="hero">
       <h2>${showArchived?'Archived Workers':'Workers'}</h2>
       <p>${showArchived
-        ? 'Archived workers are kept for historic wage, payment and audit records but cannot use the portal.'
-        : 'Manage active worker accounts, contact information and portal access.'}</p>
+        ? 'Search archived workers while keeping historic wage and audit records intact.'
+        : 'Search and manage active worker accounts, contact information and portal access.'}</p>
     </div>
 
     <div class="section-title">
@@ -1180,20 +1362,32 @@ async function workersPage(showArchived=false){
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="filterbar">
+        <div class="field">
+          <label>Search workers</label>
+          <input id="workerSearch" placeholder="Name, phone, email, town or postcode…" oninput="filterWorkers()">
+        </div>
+        ${!showArchived?`
+        <div class="field compact">
+          <label>Account status</label>
+          <select id="workerStatusFilter" onchange="filterWorkers()">
+            <option value="">All active-list workers</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>`:''}
+      </div>
+      <div id="workerResultCount" class="result-count"></div>
+    </div>
+
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Contact</th>
-            <th>Start Date</th>
-            <th>Status</th>
-            <th>Action</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Name</th><th>Contact</th><th>Start Date</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
-          ${(data||[]).map(w=>`
-            <tr>
+          ${(data||[]).map(w=>{
+            const searchText=[w.full_name,w.phone,w.contact_email,w.address_line1,w.address_line2,w.town_city,w.county,w.postcode].filter(Boolean).join(' ').toLowerCase();
+            return `<tr class="worker-filter-row" data-search="${esc(searchText)}" data-status="${w.active?'active':'inactive'}">
               <td>
                 <strong>${esc(w.full_name||'Unnamed worker')}</strong>
                 ${w.town_city||w.postcode?`<div class="meta">${esc([w.town_city,w.postcode].filter(Boolean).join(' • '))}</div>`:''}
@@ -1205,18 +1399,15 @@ async function workersPage(showArchived=false){
                 ${!w.phone&&!w.contact_email?'<span class="meta">No contact details</span>':''}
               </td>
               <td>${w.start_date?date(w.start_date):'<span class="meta">—</span>'}</td>
-              <td>${showArchived
-                ? '<span class="badge rejectedunpaid">Archived</span>'
-                : (w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>')}</td>
-              <td>
-                <div class="row">
-                  <button class="btn secondary small" onclick="showWorkerDetails('${w.id}',${showArchived})">View / Edit</button>
-                  ${showArchived
-                    ? `<button class="btn success small" onclick="restoreArchivedWorker('${w.id}')">Restore Worker</button>`
-                    : `<button class="btn danger small" onclick="archiveWorker('${w.id}')">Archive Worker</button>`}
-                </div>
-              </td>
-            </tr>`).join('') || `<tr><td colspan="5">${showArchived?'No archived workers.':'No active workers yet.'}</td></tr>`}
+              <td>${showArchived?'<span class="badge rejectedunpaid">Archived</span>':(w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>')}</td>
+              <td><div class="row">
+                <button class="btn secondary small" onclick="showWorkerDetails('${w.id}',${showArchived})">View / Edit</button>
+                ${showArchived
+                  ? `<button class="btn success small" onclick="restoreArchivedWorker('${w.id}')">Restore Worker</button>`
+                  : `<button class="btn danger small" onclick="archiveWorker('${w.id}')">Archive Worker</button>`}
+              </div></td>
+            </tr>`;
+          }).join('') || `<tr><td colspan="5">${showArchived?'No archived workers.':'No active workers yet.'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1226,6 +1417,25 @@ async function workersPage(showArchived=false){
         ? 'Restoring a worker returns them to the active worker list. Their historic data remains unchanged.'
         : 'Archive is safer than permanent deletion: historic payments, queries and audit history are retained.'}
     </div>`;
+
+  filterWorkers();
+}
+
+function filterWorkers(){
+  const search=(document.getElementById('workerSearch')?.value||'').trim().toLowerCase();
+  const status=document.getElementById('workerStatusFilter')?.value||'';
+  const rows=[...document.querySelectorAll('.worker-filter-row')];
+  let visible=0;
+
+  rows.forEach(row=>{
+    const show=(!search||row.dataset.search.includes(search))
+      &&(!status||row.dataset.status===status);
+    row.classList.toggle('hidden',!show);
+    if(show)visible++;
+  });
+
+  const el=document.getElementById('workerResultCount');
+  if(el)el.textContent=`Showing ${visible} of ${rows.length} worker${rows.length===1?'':'s'}.`;
 }
 
 function renderDraftPaymentItems(){
