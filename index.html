@@ -332,6 +332,18 @@ async function boot(){
   }
 
   profile=p;
+
+  if(profile.role!=='admin' && (profile.active!==true || profile.archived_at)){
+    await sb.auth.signOut();
+    profile=null;
+    session=null;
+    appView.classList.add('hidden');
+    recoveryView.classList.add('hidden');
+    loginView.classList.remove('hidden');
+    document.getElementById('loginError').textContent='This worker account is inactive or archived. Contact your administrator.';
+    return;
+  }
+
   loginView.classList.add('hidden');
   recoveryView.classList.add('hidden');
   appView.classList.remove('hidden');
@@ -762,7 +774,7 @@ async function createWorkerAccount(){
 }
 
 
-async function showWorkerDetails(id){
+async function showWorkerDetails(id,fromArchive=false){
   const {data:w,error}=await sb.from('profiles').select('*').eq('id',id).single();
   if(error)return alert(error.message);
 
@@ -831,7 +843,7 @@ async function showWorkerDetails(id){
     </div>
 
     <div class="row" style="margin-top:18px">
-      <button class="btn success" onclick="saveWorkerDetails('${w.id}')">Save Worker</button>
+      <button class="btn success" onclick="saveWorkerDetails('${w.id}',${fromArchive})">Save Worker</button>
       <button class="btn secondary" onclick="closeModal()">Cancel</button>
     </div>
 
@@ -839,7 +851,7 @@ async function showWorkerDetails(id){
   showModal();
 }
 
-async function saveWorkerDetails(id){
+async function saveWorkerDetails(id,fromArchive=false){
   const msg=document.getElementById('wdMessage');
   msg.textContent='Saving…';
   msg.style.color='var(--muted)';
@@ -877,8 +889,73 @@ async function saveWorkerDetails(id){
 
   setTimeout(()=>{
     closeModal();
-    workersPage();
+    workersPage(fromArchive);
   },650);
+}
+
+
+async function archiveWorker(id){
+  const {data:w,error:findError}=await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id',id)
+    .single();
+
+  if(findError)return alert(findError.message);
+
+  if(!confirm(
+    `Archive ${w.full_name||'this worker'}?\n\nThey will be removed from the active workers list and blocked from normal portal access. Historic payments, queries and audit records will be kept.`
+  ))return;
+
+  const {error}=await sb
+    .from('profiles')
+    .update({
+      active:false,
+      archived_at:new Date().toISOString()
+    })
+    .eq('id',id);
+
+  if(error)return alert(error.message);
+
+  await logActivity(
+    'WORKER_ARCHIVED',
+    `Archived worker: ${w.full_name||id}`,
+    'worker',
+    id
+  );
+
+  workersPage(false);
+}
+
+async function restoreArchivedWorker(id){
+  const {data:w,error:findError}=await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id',id)
+    .single();
+
+  if(findError)return alert(findError.message);
+
+  if(!confirm(`Restore ${w.full_name||'this worker'} to the active workers list?`))return;
+
+  const {error}=await sb
+    .from('profiles')
+    .update({
+      active:true,
+      archived_at:null
+    })
+    .eq('id',id);
+
+  if(error)return alert(error.message);
+
+  await logActivity(
+    'WORKER_RESTORED',
+    `Restored archived worker: ${w.full_name||id}`,
+    'worker',
+    id
+  );
+
+  workersPage(true);
 }
 
 async function setWorkerActive(id,makeActive){
@@ -1069,12 +1146,16 @@ async function restoreMasterBackup(){
 
 async function adminDashboard(){const ps=await getPayments(),qs=await getQueries();const t=ps.reduce((a,p)=>{const x=totals(p);a.b+=x.booked;a.p+=x.paid;return a},{b:0,p:0});content.innerHTML=`<div class="hero"><h2>Admin Dashboard</h2><p>Manage published bookings, real payments and worker queries.</p></div><div class="grid stats">${stat('Booked',fmt(t.b))}${stat('Actually Paid',fmt(t.p))}${stat('Difference',fmt(Math.max(0,t.b-t.p)))}${stat('Open Queries',qs.filter(q=>q.status!=='Resolved').length)}</div>`}
 async function adminPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>Payments</h2><p>Current worker payment records.</p></div><div class="section-title"><h3>Payments</h3><button class="btn success small" onclick="newPayment()">Add payment</button></div>${ps.map(paymentCard).join('')}`}
-async function workersPage(){
-  const {data,error}=await sb
+async function workersPage(showArchived=false){
+  const query=sb
     .from('profiles')
     .select('*')
     .eq('role','worker')
     .order('full_name');
+
+  const {data,error}=showArchived
+    ? await query.not('archived_at','is',null)
+    : await query.is('archived_at',null);
 
   if(error){
     content.innerHTML=`<div class="card">${esc(error.message)}</div>`;
@@ -1083,13 +1164,20 @@ async function workersPage(){
 
   content.innerHTML=`
     <div class="hero">
-      <h2>Workers</h2>
-      <p>Manage worker accounts, contact information and access to the TallyTrowel Portal.</p>
+      <h2>${showArchived?'Archived Workers':'Workers'}</h2>
+      <p>${showArchived
+        ? 'Archived workers are kept for historic wage, payment and audit records but cannot use the portal.'
+        : 'Manage active worker accounts, contact information and portal access.'}</p>
     </div>
 
     <div class="section-title">
-      <h3>Worker Accounts</h3>
-      <button class="btn success small" onclick="showInviteWorker()">➕ Add / Invite Worker</button>
+      <h3>${showArchived?'Archived Accounts':'Active Worker Accounts'}</h3>
+      <div class="row">
+        ${showArchived
+          ? `<button class="btn secondary small" onclick="workersPage(false)">← Active Workers</button>`
+          : `<button class="btn secondary small" onclick="workersPage(true)">🗄 Archived Workers</button>
+             <button class="btn success small" onclick="showInviteWorker()">➕ Add / Invite Worker</button>`}
+      </div>
     </div>
 
     <div class="table-wrap">
@@ -1109,6 +1197,7 @@ async function workersPage(){
               <td>
                 <strong>${esc(w.full_name||'Unnamed worker')}</strong>
                 ${w.town_city||w.postcode?`<div class="meta">${esc([w.town_city,w.postcode].filter(Boolean).join(' • '))}</div>`:''}
+                ${showArchived&&w.archived_at?`<div class="meta">Archived ${date(w.archived_at)}</div>`:''}
               </td>
               <td>
                 ${w.phone?`<div>${esc(w.phone)}</div>`:''}
@@ -1116,20 +1205,26 @@ async function workersPage(){
                 ${!w.phone&&!w.contact_email?'<span class="meta">No contact details</span>':''}
               </td>
               <td>${w.start_date?date(w.start_date):'<span class="meta">—</span>'}</td>
-              <td>${w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>'}</td>
+              <td>${showArchived
+                ? '<span class="badge rejectedunpaid">Archived</span>'
+                : (w.active?'<span class="badge paid">Active</span>':'<span class="badge rejectedunpaid">Inactive</span>')}</td>
               <td>
                 <div class="row">
-                  <button class="btn secondary small" onclick="showWorkerDetails('${w.id}')">View / Edit</button>
-                  <button class="btn ${w.active?'danger':'success'} small" onclick="setWorkerActive('${w.id}',${!w.active})">${w.active?'Deactivate':'Reactivate'}</button>
+                  <button class="btn secondary small" onclick="showWorkerDetails('${w.id}',${showArchived})">View / Edit</button>
+                  ${showArchived
+                    ? `<button class="btn success small" onclick="restoreArchivedWorker('${w.id}')">Restore Worker</button>`
+                    : `<button class="btn danger small" onclick="archiveWorker('${w.id}')">Archive Worker</button>`}
                 </div>
               </td>
-            </tr>`).join('') || `<tr><td colspan="5">No workers yet.</td></tr>`}
+            </tr>`).join('') || `<tr><td colspan="5">${showArchived?'No archived workers.':'No active workers yet.'}</td></tr>`}
         </tbody>
       </table>
     </div>
 
     <div class="notice" style="margin-top:16px">
-      Deactivating a worker removes their active status without deleting historic wage and payment records.
+      ${showArchived
+        ? 'Restoring a worker returns them to the active worker list. Their historic data remains unchanged.'
+        : 'Archive is safer than permanent deletion: historic payments, queries and audit history are retained.'}
     </div>`;
 }
 
