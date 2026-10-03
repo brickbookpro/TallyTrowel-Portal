@@ -366,7 +366,7 @@ function renderShell(){
   sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
 
   const items=profile.role==='admin'
-    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
+    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['accounts','📊 Annual Accounts'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
     : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['details','👤 My Details']];
 
   nav.innerHTML=items.map(([id,l])=>`
@@ -400,6 +400,7 @@ async function renderPage(){
   if(profile.role==='admin'){
     if(page==='dashboard')return adminDashboard();
     if(page==='payments')return adminPayments();
+    if(page==='accounts')return annualAccountsPage();
     if(page==='queries')return adminQueries();
     if(page==='workers')return workersPage();
     if(page==='security')return securityPage();
@@ -430,20 +431,43 @@ function calcNetStatement(paidTotal,cisDeduction,retention){
   return Math.round(Math.max(0,Number(paidTotal||0)-Number(cisDeduction||0)-Number(retention||0))*100)/100;
 }
 
+function paymentFinancials(p){
+  const t=totals(p);
+  const rate=Math.max(0,Number(p.cis_rate??20));
+  const retention=Math.max(0,Number(p.retention||0));
+  const expectedCis=calcCisDeduction(t.booked,rate);
+  const actualCis=calcCisDeduction(t.paid,rate);
+  return {
+    booked:t.booked, paid:t.paid, rate, retention,
+    expectedCis, actualCis,
+    expectedNet:calcNetStatement(t.booked,expectedCis,retention),
+    actualNet:calcNetStatement(t.paid,actualCis,retention)
+  };
+}
+function currentUkTaxYearStart(){
+  const now=new Date(), y=now.getFullYear();
+  return now>=new Date(y,3,6)?y:y-1;
+}
+function taxYearBounds(startYear){
+  return {start:`${startYear}-04-06`,end:`${startYear+1}-04-05`,label:`${startYear}/${String(startYear+1).slice(-2)}`};
+}
+function paymentTaxDate(p){return p.payment_date||p.week_ending||'';}
+
 
 async function workerDashboard(){
   try{
-    const ps=await getPayments();const t=ps.reduce((a,p)=>{const x=totals(p);a.booked+=x.booked;a.paid+=x.paid;return a},{booked:0,paid:0});
-    content.innerHTML=`<div class="hero"><h2>Welcome, ${esc(profile.full_name)}</h2><p>See what has been booked for you, what has actually been paid, and query anything that looks wrong.</p></div>
-    <div class="grid stats">${stat('Booked / Expected',fmt(t.booked))}${stat('Actually Paid',fmt(t.paid))}${stat('Difference',fmt(Math.max(0,t.booked-t.paid)))}${stat('Payments',ps.length)}</div>
+    const ps=await getPayments();
+    const t=ps.reduce((a,p)=>{const f=paymentFinancials(p);a.booked+=f.booked;a.paid+=f.paid;a.expectedNet+=f.expectedNet;a.actualNet+=f.actualNet;return a},{booked:0,paid:0,expectedNet:0,actualNet:0});
+    content.innerHTML=`<div class="hero"><h2>Welcome, ${esc(profile.full_name)}</h2><p>See what has been booked, what you should expect in the bank after CIS, and what has actually been paid.</p></div>
+    <div class="grid stats">${stat('Booked / Expected',fmt(t.booked))}${stat('Expected Bank',fmt(t.expectedNet))}${stat('Actually Paid Gross',fmt(t.paid))}${stat('Actual Bank / Net',fmt(t.actualNet))}${stat('Payments',ps.length)}</div>
     <div class="section-title"><h3>Latest Payments</h3></div>${ps.slice(0,3).map(paymentCard).join('')||'<div class="card">No payments yet.</div>'}`;
   }catch(e){content.innerHTML=`<div class="card">${esc(e.message)}</div>`}
 }
 async function workerPayments(){const ps=await getPayments();content.innerHTML=`<div class="hero"><h2>My Payments</h2><p>Published payment records and item-by-item status.</p></div><div class="grid">${ps.map(paymentCard).join('')||'<div class="card">No payments.</div>'}</div>`}
 function paymentCard(p){
-  const t=totals(p),name=p.profiles?.full_name||profile.full_name;
-  return `<div class="card"><div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(p.site)} • ${date(p.week_ending)}</h3><small>${esc(name||'')}</small></div><span class="badge ${statusClass(p.status)}">${esc(p.status)}</span></div>
-  <div class="money-grid">${money('Booked / Expected',t.booked)}${money('Actually Paid',t.paid)}${money('Difference',Math.max(0,t.booked-t.paid))}${money('Net Statement',p.net_statement)}</div>
+  const f=paymentFinancials(p),name=p.profiles?.full_name||profile.full_name;
+  return `<div class="card"><div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(p.site)} • ${date(p.week_ending)}</h3><small>${esc(name||'')}${p.payment_date?` • Paid ${date(p.payment_date)}`:''}</small></div><span class="badge ${statusClass(p.status)}">${esc(p.status)}</span></div>
+  <div class="money-grid">${money('Booked / Expected',f.booked)}${money(`Expected CIS (${f.rate}%)`,f.expectedCis)}${money('Expected Bank',f.expectedNet)}${money('Actually Paid Gross',f.paid)}${money(`Actual CIS (${f.rate}%)`,f.actualCis)}${money('Actual Bank / Net',f.actualNet)}</div>
   <div class="row">
     <button class="btn primary small" onclick="openPayment('${p.id}')">View breakdown</button>
     ${profile.role==='admin'?`<button class="btn secondary small" onclick="editPaymentDetails('${p.id}')">✏ Edit</button>`:''}
@@ -452,8 +476,9 @@ function paymentCard(p){
 }
 async function openPayment(id){
   const {data:p,error}=await sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').eq('id',id).single();if(error)return alert(error.message);
-  modalTitle.textContent=`Payment • ${p.profiles?.full_name||''} • ${date(p.week_ending)}`;const t=totals(p);
-  modalBody.innerHTML=`<div class="money-grid">${money('Booked',t.booked)}${money('Paid',t.paid)}${money('Difference',Math.max(0,t.booked-t.paid))}${money('Net',p.net_statement)}</div>
+  modalTitle.textContent=`Payment • ${p.profiles?.full_name||''} • ${date(p.week_ending)}`;
+  const t=totals(p),f=paymentFinancials(p);
+  modalBody.innerHTML=`<div class="money-grid">${money('Booked / Expected',f.booked)}${money(`Expected CIS (${f.rate}%)`,f.expectedCis)}${money('Expected Bank',f.expectedNet)}${money('Actually Paid Gross',f.paid)}${money(`Actual CIS (${f.rate}%)`,f.actualCis)}${money('Actual Bank / Net',f.actualNet)}</div>
   <div class="table-wrap"><table><thead><tr><th>Type</th><th>Reference</th><th>Description</th><th>Booked</th><th>Paid</th><th>Status</th>${profile.role==='admin'?'<th>Action</th>':''}</tr></thead><tbody>
   ${(p.payment_items||[]).map(i=>`<tr><td>${esc(i.type)}</td><td>${esc(i.reference)}</td><td>${esc(i.description)}${i.note?`<div class="meta">${esc(i.note)}</div>`:''}</td><td>${fmt(i.booked_amount)}</td><td>${fmt(i.paid_amount)}</td><td><span class="badge ${statusClass(i.status)}">${esc(i.status)}</span></td>${profile.role==='admin'?`<td><button class="btn secondary small" onclick="editItem('${i.id}','${p.id}')">Update</button></td>`:''}</tr>`).join('')}
   </tbody></table></div>
@@ -473,92 +498,58 @@ async function openPayment(id){
 
 
 async function editPaymentDetails(paymentId){
-  const {data:p,error}=await sb
-    .from('payments')
-    .select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)')
-    .eq('id',paymentId)
-    .single();
+  const {data:p,error}=await sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').eq('id',paymentId).single();
   if(error)return alert(error.message);
 
-  const t=totals(p);
-  const currentRate=Number(p.cis_rate??20);
-  const retention=Number(p.retention||0);
-  const cis=calcCisDeduction(t.paid,currentRate);
-  const net=calcNetStatement(t.paid,cis,retention);
-
+  const f=paymentFinancials(p);
   modalTitle.textContent='Edit Payment Details';
   modalBody.innerHTML=`
-    <div class="notice">
-      CIS is calculated automatically from the Actually Paid total. The default rate is 20%, but you can change it for this payment.
-    </div>
+    <div class="notice">Expected figures use Booked / Expected immediately. Actual figures use Actually Paid. CIS defaults to 20% but can be changed per payment.</div>
     <div class="form-grid" style="margin-top:14px">
       <div class="field full"><label>Worker</label><input value="${esc(p.profiles?.full_name||'')}" disabled></div>
       <div class="field"><label>Site</label><input id="epSite" value="${esc(p.site||'')}"></div>
       <div class="field"><label>Week ending</label><input id="epWeek" type="date" value="${esc(p.week_ending||'')}"></div>
-      <div class="field"><label>Overall payment status</label>
-        <select id="epStatus">${['Awaiting Payment','Part Paid','Paid','Disputed','Corrected','Rejected / Unpaid'].map(x=>`<option ${x===p.status?'selected':''}>${x}</option>`).join('')}</select>
-      </div>
-      <div class="field"><label>Published</label>
-        <select id="epPublished">
-          <option value="true" ${p.published?'selected':''}>Published</option>
-          <option value="false" ${!p.published?'selected':''}>Unpublished / Draft</option>
-        </select>
-      </div>
-      <div class="field"><label>Actually Paid total</label><input value="${fmt(t.paid)}" disabled></div>
-      <div class="field"><label>CIS rate (%)</label><input id="epCisRate" type="number" min="0" step="0.01" value="${currentRate}" oninput="updateEditPaymentFinancialPreview()"></div>
-      <div class="field"><label>Retention (£)</label><input id="epRetention" type="number" min="0" step="0.01" value="${retention}" oninput="updateEditPaymentFinancialPreview()"></div>
-      <div class="field"><label>CIS deduction (£)</label><input id="epCis" value="${cis.toFixed(2)}" readonly></div>
-      <div class="field"><label>Net statement (£)</label><input id="epNet" value="${net.toFixed(2)}" readonly></div>
+      <div class="field"><label>Payment date</label><input id="epPaymentDate" type="date" value="${esc(p.payment_date||'')}"></div>
+      <div class="field"><label>Overall payment status</label><select id="epStatus">${['Awaiting Payment','Part Paid','Paid','Disputed','Corrected','Rejected / Unpaid'].map(x=>`<option ${x===p.status?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="field"><label>Published</label><select id="epPublished"><option value="true" ${p.published?'selected':''}>Published</option><option value="false" ${!p.published?'selected':''}>Unpublished / Draft</option></select></div>
+      <div class="field"><label>Booked / Expected total</label><input value="${fmt(f.booked)}" disabled></div>
+      <div class="field"><label>Actually Paid gross total</label><input value="${fmt(f.paid)}" disabled></div>
+      <div class="field"><label>CIS rate (%)</label><input id="epCisRate" type="number" min="0" step="0.01" value="${f.rate}" oninput="updateEditPaymentFinancialPreview()"></div>
+      <div class="field"><label>Retention (£)</label><input id="epRetention" type="number" min="0" step="0.01" value="${f.retention}" oninput="updateEditPaymentFinancialPreview()"></div>
+      <div class="field"><label>Expected CIS (£)</label><input id="epExpectedCis" readonly></div>
+      <div class="field"><label>Expected bank amount (£)</label><input id="epExpectedNet" readonly></div>
+      <div class="field"><label>Actual CIS (£)</label><input id="epCis" readonly></div>
+      <div class="field"><label>Actual bank / net (£)</label><input id="epNet" readonly></div>
     </div>
-    <input id="epPaidTotal" type="hidden" value="${t.paid}">
-    <div class="row" style="margin-top:16px">
-      <button class="btn success" onclick="savePaymentDetails('${p.id}')">Save Payment</button>
-      <button class="btn secondary" onclick="openPayment('${p.id}')">Cancel</button>
-    </div>`;
+    <input id="epBookedTotal" type="hidden" value="${f.booked}">
+    <input id="epPaidTotal" type="hidden" value="${f.paid}">
+    <div class="row" style="margin-top:16px"><button class="btn success" onclick="savePaymentDetails('${p.id}')">Save Payment</button><button class="btn secondary" onclick="openPayment('${p.id}')">Cancel</button></div>`;
   showModal();
+  updateEditPaymentFinancialPreview();
 }
 
 function updateEditPaymentFinancialPreview(){
+  const booked=Number(document.getElementById('epBookedTotal')?.value||0);
   const paid=Number(document.getElementById('epPaidTotal')?.value||0);
   const rate=Number(document.getElementById('epCisRate')?.value||20);
   const retention=Number(document.getElementById('epRetention')?.value||0);
-  const cis=calcCisDeduction(paid,rate);
-  const net=calcNetStatement(paid,cis,retention);
-  const cisEl=document.getElementById('epCis');
-  const netEl=document.getElementById('epNet');
-  if(cisEl)cisEl.value=cis.toFixed(2);
-  if(netEl)netEl.value=net.toFixed(2);
+  const expectedCis=calcCisDeduction(booked,rate), expectedNet=calcNetStatement(booked,expectedCis,retention);
+  const actualCis=calcCisDeduction(paid,rate), actualNet=calcNetStatement(paid,actualCis,retention);
+  epExpectedCis.value=expectedCis.toFixed(2); epExpectedNet.value=expectedNet.toFixed(2);
+  epCis.value=actualCis.toFixed(2); epNet.value=actualNet.toFixed(2);
 }
 
 async function savePaymentDetails(paymentId){
-  const site=document.getElementById('epSite').value.trim();
-  const week=document.getElementById('epWeek').value;
+  const site=epSite.value.trim(), week=epWeek.value;
   if(!site||!week){alert('Site and week ending are required.');return;}
-
-  const paid=Number(document.getElementById('epPaidTotal').value||0);
-  const cisRate=Number(document.getElementById('epCisRate').value||20);
-  const retention=Number(document.getElementById('epRetention').value||0);
-  const cis=calcCisDeduction(paid,cisRate);
-  const net=calcNetStatement(paid,cis,retention);
-
+  const paid=Number(epPaidTotal.value||0), cisRate=Number(epCisRate.value||20), retention=Number(epRetention.value||0);
+  const cis=calcCisDeduction(paid,cisRate), net=calcNetStatement(paid,cis,retention);
   const {error}=await sb.from('payments').update({
-    site,
-    week_ending:week,
-    status:document.getElementById('epStatus').value,
-    published:document.getElementById('epPublished').value==='true',
-    cis_rate:cisRate,
-    cis,
-    retention,
-    net_statement:net,
-    updated_at:new Date().toISOString()
+    site,week_ending:week,payment_date:epPaymentDate.value||null,status:epStatus.value,published:epPublished.value==='true',
+    cis_rate:cisRate,cis,retention,net_statement:net,updated_at:new Date().toISOString()
   }).eq('id',paymentId);
-
   if(error)return alert(error.message);
-
-  await logActivity('PAYMENT_DETAILS_UPDATED',
-    `Updated payment details; CIS ${cisRate}% = ${fmt(cis)}; net ${fmt(net)}`,
-    'payment',paymentId);
-
+  await logActivity('PAYMENT_DETAILS_UPDATED',`Updated payment details; CIS ${cisRate}% = ${fmt(cis)}; net ${fmt(net)}`,'payment',paymentId);
   openPayment(paymentId);
 }
 
@@ -862,13 +853,14 @@ async function downloadPaymentStatement(id){
     doc.setFillColor(244,247,250);
     doc.roundedRect(15,y,180,34,2,2,'F');
 
+    const f=paymentFinancials(p);
     const totalsData=[
-      ['Booked / Expected',fmt(t.booked)],
-      ['Actually Paid',fmt(t.paid)],
-      ['Difference',fmt(Math.max(0,t.booked-t.paid))],
-      ['CIS ('+Number(p.cis_rate??20)+'%)',fmt(p.cis||0)],
-      ['Retention',fmt(p.retention||0)],
-      ['Net Statement',fmt(p.net_statement||0)]
+      ['Booked / Expected',fmt(f.booked)],
+      ['Expected CIS ('+f.rate+'%)',fmt(f.expectedCis)],
+      ['Expected Bank',fmt(f.expectedNet)],
+      ['Actually Paid Gross',fmt(f.paid)],
+      ['Actual CIS ('+f.rate+'%)',fmt(f.actualCis)],
+      ['Actual Bank / Net',fmt(f.actualNet)]
     ];
 
     totalsData.forEach((r,idx)=>{
@@ -1840,6 +1832,7 @@ async function adminDashboard(){
           <div class="row" style="gap:10px;flex-wrap:wrap">
             <button class="btn success" onclick="newPayment()">➕ Add Payment</button>
             <button class="btn primary" onclick="showInviteWorker()">➕ Invite Worker</button>
+            <button class="btn secondary" onclick="go('accounts')">📊 Annual Accounts</button>
             <button class="btn secondary" onclick="go('backup')">💾 Backup</button>
           </div>
         </div>
@@ -1847,6 +1840,64 @@ async function adminDashboard(){
   }catch(e){
     content.innerHTML=`<div class="card"><strong>Could not load dashboard.</strong><div class="meta" style="margin-top:8px">${esc(e.message||String(e))}</div></div>`;
   }
+}
+
+async function annualAccountsPage(selectedStartYear=null){
+  try{
+    const ps=await getPayments();
+    const wr=await sb.from('profiles').select('id,full_name,active,archived_at').eq('role','worker').order('full_name');
+    if(wr.error)throw wr.error;
+    const startYear=Number(selectedStartYear||currentUkTaxYearStart()), bounds=taxYearBounds(startYear);
+    const current=currentUkTaxYearStart(), years=Array.from({length:7},(_,i)=>current-i);
+    const rows=(wr.data||[]).map(w=>{
+      const payments=ps.filter(p=>p.worker_id===w.id&&paymentTaxDate(p)>=bounds.start&&paymentTaxDate(p)<=bounds.end);
+      return payments.reduce((a,p)=>{const f=paymentFinancials(p);a.booked+=f.booked;a.grossPaid+=f.paid;a.cis+=f.actualCis;a.retention+=f.retention;a.net+=f.actualNet;a.paymentCount++;return a;},
+        {worker_id:w.id,worker:w.full_name||'Unnamed worker',archived:!!w.archived_at,booked:0,grossPaid:0,cis:0,retention:0,net:0,paymentCount:0});
+    });
+    const totals=rows.reduce((a,r)=>{for(const k of ['booked','grossPaid','cis','retention','net','paymentCount'])a[k]+=r[k];return a;},{booked:0,grossPaid:0,cis:0,retention:0,net:0,paymentCount:0});
+    window._annualAccountsRows=rows; window._annualAccountsBounds=bounds;
+
+    content.innerHTML=`
+      <div class="hero"><h2>Annual Accounts</h2><p>Worker payment totals for year-end records. Payment Date is used where entered; older records fall back to Week Ending.</p></div>
+      <div class="card" style="margin-bottom:16px"><div class="filterbar">
+        <div class="field compact"><label>UK tax year</label><select id="taxYearSelect" onchange="annualAccountsPage(this.value)">${years.map(y=>`<option value="${y}" ${y===startYear?'selected':''}>${taxYearBounds(y).label} • 6 Apr ${y} – 5 Apr ${y+1}</option>`).join('')}</select></div>
+        <div class="row"><button class="btn success" onclick="downloadAnnualAccountsCsv()">⬇ Export CSV</button><button class="btn secondary" onclick="printAnnualAccountsSummary()">🖨 Print / Save PDF</button></div>
+      </div></div>
+      <div class="grid stats">${stat('Gross Actually Paid',fmt(totals.grossPaid))}${stat('CIS Deducted',fmt(totals.cis))}${stat('Retention',fmt(totals.retention))}${stat('Net Paid',fmt(totals.net))}${stat('Payments',totals.paymentCount)}</div>
+      <div class="section-title"><h3>Workers • ${bounds.label}</h3></div>
+      <div class="table-wrap"><table><thead><tr><th>Worker</th><th>Payments</th><th>Booked / Expected</th><th>Gross Paid</th><th>CIS Deducted</th><th>Retention</th><th>Net Paid</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td><strong>${esc(r.worker)}</strong>${r.archived?'<div class="meta">Archived</div>':''}</td><td>${r.paymentCount}</td><td>${fmt(r.booked)}</td><td>${fmt(r.grossPaid)}</td><td>${fmt(r.cis)}</td><td>${fmt(r.retention)}</td><td><strong>${fmt(r.net)}</strong></td><td><button class="btn secondary small" onclick="printWorkerAnnualStatement('${r.worker_id}')">Annual Statement</button></td></tr>`).join('')}</tbody>
+      <tfoot><tr><th>Total</th><th>${totals.paymentCount}</th><th>${fmt(totals.booked)}</th><th>${fmt(totals.grossPaid)}</th><th>${fmt(totals.cis)}</th><th>${fmt(totals.retention)}</th><th>${fmt(totals.net)}</th><th></th></tr></tfoot></table></div>
+      <div class="notice" style="margin-top:16px">Record-keeping summary only. Reconcile formal year-end figures against contractor statements, bank records and your accountant's records.</div>`;
+  }catch(e){content.innerHTML=`<div class="card"><strong>Could not load Annual Accounts.</strong><div class="meta">${esc(e.message||String(e))}</div></div>`}
+}
+function csvEscape(v){const x=String(v??'');return /[",\n]/.test(x)?`"${x.replaceAll('"','""')}"`:x}
+function downloadAnnualAccountsCsv(){
+  const rows=window._annualAccountsRows||[], b=window._annualAccountsBounds;if(!b)return;
+  const lines=[['Worker','Payments','Booked / Expected','Gross Actually Paid','CIS Deducted','Retention','Net Paid'],...rows.map(r=>[r.worker,r.paymentCount,r.booked.toFixed(2),r.grossPaid.toFixed(2),r.cis.toFixed(2),r.retention.toFixed(2),r.net.toFixed(2)])];
+  const blob=new Blob(['\uFEFF'+lines.map(r=>r.map(csvEscape).join(',')).join('\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`TallyTrowel_Annual_Accounts_${b.label.replace('/','-')}.csv`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  logActivity('ANNUAL_ACCOUNTS_CSV_EXPORTED',`Exported annual accounts ${b.label}`,'annual_accounts',b.label);
+}
+function annualStatementHtml(title,subtitle,rows,totals){
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+  body{font-family:Arial,sans-serif;color:#17212b;margin:0;padding:28px}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1f6fa8;padding-bottom:14px}.logo{width:240px;max-height:75px;object-fit:contain}.meta{color:#687685;font-size:12px}h1{margin:0;color:#0f2f4d}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.stat{background:#f4f7fa;padding:12px;border-radius:7px}.stat small{display:block;color:#687685}.stat strong{font-size:17px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0f2f4d;color:white;text-align:left;padding:8px}td{border:1px solid #dbe3ea;padding:7px}.right{text-align:right}.footer{margin-top:24px;border-top:1px solid #dbe3ea;padding-top:10px;color:#687685;font-size:10px}@media print{body{padding:10mm}}</style></head><body>
+  <div class="header"><img class="logo" src="${TALLYTROWEL_LOGO_DATA}"><div style="text-align:right"><h1>${esc(title)}</h1><div class="meta">${esc(subtitle)}</div></div></div>
+  <div class="stats"><div class="stat"><small>Gross Paid</small><strong>${fmt(totals.grossPaid)}</strong></div><div class="stat"><small>CIS Deducted</small><strong>${fmt(totals.cis)}</strong></div><div class="stat"><small>Retention</small><strong>${fmt(totals.retention)}</strong></div><div class="stat"><small>Net Paid</small><strong>${fmt(totals.net)}</strong></div></div>
+  <table><thead><tr><th>Worker / Payment</th><th>Payments</th><th class="right">Gross Paid</th><th class="right">CIS</th><th class="right">Retention</th><th class="right">Net Paid</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.worker)}</td><td>${r.paymentCount}</td><td class="right">${fmt(r.grossPaid)}</td><td class="right">${fmt(r.cis)}</td><td class="right">${fmt(r.retention)}</td><td class="right">${fmt(r.net)}</td></tr>`).join('')}</tbody></table>
+  <div class="footer">Generated ${new Date().toLocaleString('en-GB')} • TallyTrowel Portal</div><script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+}
+function printAnnualAccountsSummary(){
+  const rows=window._annualAccountsRows||[],b=window._annualAccountsBounds;if(!b)return;
+  const totals=rows.reduce((a,r)=>{a.grossPaid+=r.grossPaid;a.cis+=r.cis;a.retention+=r.retention;a.net+=r.net;return a},{grossPaid:0,cis:0,retention:0,net:0});
+  const w=window.open('','_blank','width=1100,height=850');if(!w)return alert('Pop-up blocked.');w.document.write(annualStatementHtml('Annual Accounts Summary',`UK tax year ${b.label}`,rows,totals));w.document.close();
+}
+async function printWorkerAnnualStatement(workerId){
+  const b=window._annualAccountsBounds;if(!b)return;const ps=await getPayments();
+  const wp=ps.filter(p=>p.worker_id===workerId&&paymentTaxDate(p)>=b.start&&paymentTaxDate(p)<=b.end), row=(window._annualAccountsRows||[]).find(r=>r.worker_id===workerId),name=row?.worker||'Worker';
+  const totals=wp.reduce((a,p)=>{const f=paymentFinancials(p);a.grossPaid+=f.paid;a.cis+=f.actualCis;a.retention+=f.retention;a.net+=f.actualNet;return a},{grossPaid:0,cis:0,retention:0,net:0});
+  const detail=wp.map(p=>{const f=paymentFinancials(p);return{worker:`${p.site||''} • ${date(paymentTaxDate(p))}`,paymentCount:'',grossPaid:f.paid,cis:f.actualCis,retention:f.retention,net:f.actualNet}});
+  const w=window.open('','_blank','width=1000,height=850');if(!w)return alert('Pop-up blocked.');w.document.write(annualStatementHtml(`${name} • Annual Statement`,`UK tax year ${b.label}`,detail,totals));w.document.close();
 }
 async function adminPayments(){
   const ps=await getPayments();
@@ -2072,6 +2123,10 @@ async function newPayment(){
         <label>Week ending</label>
         <input id="npWeek" type="date">
       </div>
+      <div class="field">
+        <label>Payment date</label>
+        <input id="npPaymentDate" type="date">
+      </div>
 
       <div class="field">
         <label>Payment status</label>
@@ -2093,15 +2148,10 @@ async function newPayment(){
         <input id="npRet" type="number" step="0.01" min="0" value="0" oninput="updateNewPaymentFinancialPreview()">
       </div>
 
-      <div class="field">
-        <label>CIS deduction (£)</label>
-        <input id="npCis" type="number" step="0.01" value="0" readonly>
-      </div>
-
-      <div class="field">
-        <label>Net statement (£)</label>
-        <input id="npNet" type="number" step="0.01" value="0" readonly>
-      </div>
+      <div class="field"><label>Expected CIS deduction (£)</label><input id="npExpectedCis" type="number" step="0.01" value="0" readonly></div>
+      <div class="field"><label>Expected bank amount (£)</label><input id="npExpectedNet" type="number" step="0.01" value="0" readonly></div>
+      <div class="field"><label>Actual CIS deduction (£)</label><input id="npCis" type="number" step="0.01" value="0" readonly></div>
+      <div class="field"><label>Actual bank / net (£)</label><input id="npNet" type="number" step="0.01" value="0" readonly></div>
     </div>
 
     <div class="section-title" style="margin-top:22px">
@@ -2128,15 +2178,18 @@ async function newPayment(){
 
 
 function updateNewPaymentFinancialPreview(){
+  const bookedTotal=newPaymentItems.reduce((sum,i)=>sum+Number(i.booked_amount||0),0);
   const paidTotal=newPaymentItems.reduce((sum,i)=>sum+Number(i.paid_amount||0),0);
   const rate=Number(document.getElementById('npCisRate')?.value||20);
   const retention=Number(document.getElementById('npRet')?.value||0);
-  const cis=calcCisDeduction(paidTotal,rate);
-  const net=calcNetStatement(paidTotal,cis,retention);
-  const cisEl=document.getElementById('npCis');
-  const netEl=document.getElementById('npNet');
-  if(cisEl)cisEl.value=cis.toFixed(2);
-  if(netEl)netEl.value=net.toFixed(2);
+  const expectedCis=calcCisDeduction(bookedTotal,rate);
+  const expectedNet=calcNetStatement(bookedTotal,expectedCis,retention);
+  const actualCis=calcCisDeduction(paidTotal,rate);
+  const actualNet=calcNetStatement(paidTotal,actualCis,retention);
+  if(document.getElementById('npExpectedCis'))npExpectedCis.value=expectedCis.toFixed(2);
+  if(document.getElementById('npExpectedNet'))npExpectedNet.value=expectedNet.toFixed(2);
+  if(document.getElementById('npCis'))npCis.value=actualCis.toFixed(2);
+  if(document.getElementById('npNet'))npNet.value=actualNet.toFixed(2);
 }
 
 function renderDraftPaymentItems(){
@@ -2308,6 +2361,7 @@ async function saveNewPayment(){
     worker_id:workerId,
     site,
     week_ending:week,
+    payment_date:document.getElementById('npPaymentDate').value||null,
     cis_rate:cisRate,
     cis,
     retention,
