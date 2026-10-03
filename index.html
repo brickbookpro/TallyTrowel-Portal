@@ -181,19 +181,35 @@ async function requestPasswordReset(){
   recoveryMessage.textContent='If an account exists for that email, a password reset link has been sent.';
 }
 
+function isInviteRoute(){
+  const params=new URLSearchParams(window.location.search);
+  return params.get('invite')==='1'
+      || window.location.hash.includes('type=invite');
+}
+
 function isRecoveryRoute(){
   const params=new URLSearchParams(window.location.search);
   return params.get('recovery')==='1'
       || window.location.hash.includes('type=recovery');
 }
 
-function showNewPasswordScreen(){
+function showNewPasswordScreen(mode='recovery'){
   loginView.classList.add('hidden');
   appView.classList.add('hidden');
   recoveryView.classList.remove('hidden');
   recoveryRequestPanel.classList.add('hidden');
   newPasswordPanel.classList.remove('hidden');
-  recoveryTitle.textContent='Choose a new password';
+
+  if(mode==='invite'){
+    recoveryTitle.textContent='Welcome to TallyTrowel Portal';
+    const heading=newPasswordPanel.querySelector('h3');
+    if(heading) heading.textContent='Create your password';
+  }else{
+    recoveryTitle.textContent='Choose a new password';
+    const heading=newPasswordPanel.querySelector('h3');
+    if(heading) heading.textContent='Set new password';
+  }
+
   newPasswordMessage.textContent='';
 }
 
@@ -222,10 +238,16 @@ async function saveNewPassword(){
     return;
   }
 
-  await logActivity('PASSWORD_CHANGED','User changed their password after recovery');
+  const inviteSetup=isInviteRoute();
+  await logActivity(
+    inviteSetup?'PASSWORD_CREATED':'PASSWORD_CHANGED',
+    inviteSetup?'User created their password after invitation':'User changed their password after recovery'
+  );
 
   newPasswordMessage.style.color='var(--green)';
-  newPasswordMessage.textContent='Password changed successfully. Opening your portal…';
+  newPasswordMessage.textContent=inviteSetup
+    ? 'Password created successfully. Opening your portal…'
+    : 'Password changed successfully. Opening your portal…';
 
   setTimeout(async ()=>{
     history.replaceState({},'',window.location.pathname);
@@ -262,6 +284,23 @@ async function boot(){
   const {data:{session:s}}=await sb.auth.getSession();
   session=s;
 
+  if(isInviteRoute()){
+    loginView.classList.add('hidden');
+    appView.classList.add('hidden');
+    recoveryView.classList.remove('hidden');
+
+    if(session){
+      const {data:p}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
+      if(p) profile=p;
+      showNewPasswordScreen('invite');
+    }else{
+      recoveryRequestPanel.classList.add('hidden');
+      newPasswordPanel.classList.add('hidden');
+      recoveryTitle.textContent='Opening your TallyTrowel invitation…';
+    }
+    return;
+  }
+
   if(isRecoveryRoute()){
     loginView.classList.add('hidden');
     appView.classList.add('hidden');
@@ -270,7 +309,7 @@ async function boot(){
     if(session){
       const {data:p}=await sb.from('profiles').select('*').eq('id',session.user.id).single();
       if(p) profile=p;
-      showNewPasswordScreen();
+      showNewPasswordScreen('recovery');
     }else{
       recoveryRequestPanel.classList.add('hidden');
       newPasswordPanel.classList.add('hidden');
@@ -675,14 +714,17 @@ async function createWorkerAccount(){
   }
 
   const {data,error}=await sb.functions.invoke('create-worker',{
-  body:{
-    full_name:name,
-    email:emailAddress,
-    method,
-    temporary_password:method==='temporary_password'?tempPassword:null,
-    redirect_to:'https://portal.tallytrowel.com'
-  }
-});
+    headers:{
+      Authorization:`Bearer ${currentSession.access_token}`
+    },
+    body:{
+      full_name:name,
+      email:emailAddress,
+      method,
+      temporary_password:method==='temporary_password'?tempPassword:null,
+      redirect_to:'https://portal.tallytrowel.com/?invite=1'
+    }
+  });
 
   btn.disabled=false;
   toggleInviteMethod();
@@ -1018,8 +1060,13 @@ function showModal(){modal.classList.remove('hidden')}function closeModal(){moda
 sb.auth.onAuthStateChange((event,newSession)=>{
   session=newSession;
 
+  if((event==='SIGNED_IN' && isInviteRoute()) || (isInviteRoute() && newSession)){
+    showNewPasswordScreen('invite');
+    return;
+  }
+
   if(event==='PASSWORD_RECOVERY' || (isRecoveryRoute() && newSession)){
-    showNewPasswordScreen();
+    showNewPasswordScreen('recovery');
   }
 });
 
