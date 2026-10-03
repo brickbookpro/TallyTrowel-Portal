@@ -413,6 +413,7 @@ async function renderPage(){
 }
 function stat(l,v){return `<div class="card stat"><small>${esc(l)}</small><strong>${v}</strong></div>`}
 function money(l,v){return `<div class="money"><small>${esc(l)}</small><strong>${fmt(v)}</strong></div>`}
+function countBox(l,v){return `<div class="money"><small>${esc(l)}</small><strong>${Number(v||0)}</strong></div>`}
 
 async function getPayments(){
   let q=sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').order('week_ending',{ascending:false});
@@ -1606,10 +1607,10 @@ async function adminDashboard(){
           </div>
 
           <div class="money-grid">
-            ${money('Active',activeWorkers)}
-            ${money('Inactive',inactiveWorkers)}
-            ${money('Archived',archivedWorkers)}
-            ${money('Total Workers',workers.length)}
+            ${countBox('Active',activeWorkers)}
+            ${countBox('Inactive',inactiveWorkers)}
+            ${countBox('Archived',archivedWorkers)}
+            ${countBox('Total Workers',workers.length)}
           </div>
 
           <div class="notice" style="margin-top:14px">
@@ -1624,10 +1625,10 @@ async function adminDashboard(){
           </div>
 
           <div class="money-grid">
-            ${money('Open',openQueries)}
-            ${money('Reviewing',reviewingQueries)}
-            ${money('Resolved',resolvedQueries)}
-            ${money('Needs Attention',needsAttention)}
+            ${countBox('Open',openQueries)}
+            ${countBox('Reviewing',reviewingQueries)}
+            ${countBox('Resolved',resolvedQueries)}
+            ${countBox('Needs Attention',needsAttention)}
           </div>
 
           ${needsAttention>0
