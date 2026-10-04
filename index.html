@@ -567,7 +567,9 @@ function paymentCard(p){
   <div class="money-grid">${money('Booked / Expected',f.booked)}${money(`Expected CIS (${f.rate}%)`,f.expectedCis)}${money('Expected Bank',f.expectedNet)}${money('Actually Paid Gross',f.paid)}${money(`Actual CIS (${f.rate}%)`,f.actualCis)}${money('Actual Bank / Net',f.actualNet)}</div>
   <div class="row">
     <button class="btn primary small" onclick="openPayment('${p.id}')">View breakdown</button>
-    ${profile.role==='admin'?`<button class="btn secondary small" onclick="editPaymentDetails('${p.id}')">✏ Edit</button>`:''}
+    ${profile.role==='admin'?`
+      <button class="btn secondary small" onclick="editPaymentDetails('${p.id}')">✏ Edit</button>
+      <button class="btn danger small" onclick="confirmDeletePayment('${p.id}')">🗑 Delete</button>`:''}
     <button class="btn success small" onclick="downloadPaymentStatement('${p.id}')">⬇ PDF Statement</button>
   </div></div>`;
 }
@@ -584,6 +586,7 @@ async function openPayment(id){
     : `<div class="row" style="margin-top:14px">
          <button class="btn success" onclick="addItemToExistingPayment('${p.id}')">➕ Add another item</button>
          <button class="btn secondary" onclick="editPaymentDetails('${p.id}')">✏ Edit Payment Details</button>
+         <button class="btn danger" onclick="confirmDeletePayment('${p.id}')">🗑 Delete Payment</button>
        </div>`}`;
   modalBody.innerHTML += `
     <div class="row" style="margin-top:16px">
@@ -593,6 +596,92 @@ async function openPayment(id){
   showModal();
 }
 
+
+
+async function confirmDeletePayment(paymentId){
+  if(profile?.role!=='admin'){
+    alert('Only an administrator can delete payments.');
+    return;
+  }
+
+  const {data:p,error}=await sb
+    .from('payments')
+    .select('id,site,week_ending,profiles!payments_worker_id_fkey(full_name),payment_items(id,reference)')
+    .eq('id',paymentId)
+    .single();
+
+  if(error)return alert(error.message);
+
+  const worker=p.profiles?.full_name||'Unknown worker';
+  const itemCount=(p.payment_items||[]).length;
+
+  const ok=confirm(
+    `Delete this payment permanently?\n\n`+
+    `Worker: ${worker}\n`+
+    `Site: ${p.site||''}\n`+
+    `Week ending: ${date(p.week_ending)}\n`+
+    `Items: ${itemCount}\n\n`+
+    `This will also delete linked payment items, item history, queries and query messages.\n\n`+
+    `This cannot be undone.`
+  );
+  if(!ok)return;
+
+  const typed=prompt(`Type DELETE to permanently remove this payment for ${worker}.`);
+  if(typed!=='DELETE'){
+    alert('Delete cancelled.');
+    return;
+  }
+
+  await deletePaymentCascade(paymentId);
+}
+
+async function deletePaymentCascade(paymentId){
+  if(profile?.role!=='admin'){
+    alert('Only an administrator can delete payments.');
+    return;
+  }
+
+  try{
+    const {data:items,error:itemsFetchError}=await sb.from('payment_items').select('id').eq('payment_id',paymentId);
+    if(itemsFetchError)throw itemsFetchError;
+    const itemIds=(items||[]).map(i=>i.id);
+
+    const {data:queries,error:queriesFetchError}=await sb.from('payment_queries').select('id').eq('payment_id',paymentId);
+    if(queriesFetchError)throw queriesFetchError;
+    const queryIds=(queries||[]).map(q=>q.id);
+
+    if(queryIds.length){
+      const {error}=await sb.from('query_messages').delete().in('query_id',queryIds);
+      if(error)throw error;
+    }
+
+    {
+      const {error}=await sb.from('payment_queries').delete().eq('payment_id',paymentId);
+      if(error)throw error;
+    }
+
+    if(itemIds.length){
+      const {error}=await sb.from('payment_item_history').delete().in('payment_item_id',itemIds);
+      if(error)throw error;
+    }
+
+    {
+      const {error}=await sb.from('payment_items').delete().eq('payment_id',paymentId);
+      if(error)throw error;
+    }
+
+    {
+      const {error}=await sb.from('payments').delete().eq('id',paymentId);
+      if(error)throw error;
+    }
+
+    closeModal();
+    alert('Payment deleted successfully.');
+    go('payments');
+  }catch(e){
+    alert('Could not delete payment: '+(e.message||String(e)));
+  }
+}
 
 async function editPaymentDetails(paymentId){
   const {data:p,error}=await sb.from('payments').select('*, profiles!payments_worker_id_fkey(full_name), payment_items(*)').eq('id',paymentId).single();
