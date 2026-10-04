@@ -120,6 +120,13 @@
   }
 }
 
+
+.btn:disabled{
+  opacity:.48;
+  cursor:not-allowed;
+  filter:grayscale(.15)
+}
+
 </style>
 </head>
 <body>
@@ -615,21 +622,68 @@ async function confirmDeletePayment(paymentId){
   const worker=p.profiles?.full_name||'Unknown worker';
   const itemCount=(p.payment_items||[]).length;
 
-  const ok=confirm(
-    `Delete this payment permanently?\n\n`+
-    `Worker: ${worker}\n`+
-    `Site: ${p.site||''}\n`+
-    `Week ending: ${date(p.week_ending)}\n`+
-    `Items: ${itemCount}\n\n`+
-    `This will also delete linked payment items, item history, queries and query messages.\n\n`+
-    `This cannot be undone.`
-  );
-  if(!ok)return;
+  modalTitle.textContent='Delete Payment';
+  modalBody.innerHTML=`
+    <div class="notice" style="border-color:#efb1b6;background:#fff1f2;color:#8f1d27">
+      <strong>This permanently deletes the payment.</strong><br>
+      Linked payment items, item history, payment queries and query messages will also be removed.
+    </div>
 
-  const typed=prompt(`Type DELETE to permanently remove this payment for ${worker}.`);
-  if(typed!=='DELETE'){
-    alert('Delete cancelled.');
-    return;
+    <div class="card" style="box-shadow:none;margin-top:14px">
+      <div class="form-grid">
+        <div class="field">
+          <label>Worker</label>
+          <input value="${esc(worker)}" disabled>
+        </div>
+        <div class="field">
+          <label>Site</label>
+          <input value="${esc(p.site||'')}" disabled>
+        </div>
+        <div class="field">
+          <label>Week ending</label>
+          <input value="${date(p.week_ending)}" disabled>
+        </div>
+        <div class="field">
+          <label>Payment items</label>
+          <input value="${itemCount}" disabled>
+        </div>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label>Type <strong>DELETE</strong> to confirm</label>
+      <input id="deletePaymentConfirmText" autocomplete="off" placeholder="DELETE"
+             oninput="updateDeletePaymentButton()">
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button id="deletePaymentConfirmButton"
+              class="btn danger"
+              disabled
+              onclick="runConfirmedPaymentDelete('${paymentId}')">
+        🗑 Permanently Delete Payment
+      </button>
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+    </div>`;
+
+  showModal();
+  setTimeout(()=>document.getElementById('deletePaymentConfirmText')?.focus(),50);
+}
+
+function updateDeletePaymentButton(){
+  const input=document.getElementById('deletePaymentConfirmText');
+  const button=document.getElementById('deletePaymentConfirmButton');
+  if(button)button.disabled=(input?.value||'')!=='DELETE';
+}
+
+async function runConfirmedPaymentDelete(paymentId){
+  const input=document.getElementById('deletePaymentConfirmText');
+  if((input?.value||'')!=='DELETE')return;
+
+  const button=document.getElementById('deletePaymentConfirmButton');
+  if(button){
+    button.disabled=true;
+    button.textContent='Deleting…';
   }
 
   await deletePaymentCascade(paymentId);
@@ -675,11 +729,27 @@ async function deletePaymentCascade(paymentId){
       if(error)throw error;
     }
 
-    closeModal();
-    alert('Payment deleted successfully.');
-    go('payments');
+    modalTitle.textContent='Payment Deleted';
+    modalBody.innerHTML=`
+      <div class="notice" style="border-color:#b8dfc7;background:#edf9f1;color:#17653a">
+        <strong>Payment deleted successfully.</strong><br>
+        The payment and its linked records have been permanently removed.
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn primary" onclick="closeModal();go('payments')">Back to Payments</button>
+      </div>`;
+    showModal();
   }catch(e){
-    alert('Could not delete payment: '+(e.message||String(e)));
+    modalTitle.textContent='Could Not Delete Payment';
+    modalBody.innerHTML=`
+      <div class="notice" style="border-color:#efb1b6;background:#fff1f2;color:#8f1d27">
+        <strong>The payment was not deleted.</strong><br>
+        ${esc(e.message||String(e))}
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn secondary" onclick="closeModal()">Close</button>
+      </div>`;
+    showModal();
   }
 }
 
