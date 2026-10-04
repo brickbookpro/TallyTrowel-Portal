@@ -2351,7 +2351,8 @@ async function workersPage(showArchived=false){
               <td><div class="row">
                 <button class="btn secondary small" onclick="showWorkerDetails('${w.id}',${showArchived})">View / Edit</button>
                 ${showArchived
-                  ? `<button class="btn success small" onclick="restoreArchivedWorker('${w.id}')">Restore Worker</button>`
+                  ? `<button class="btn success small" onclick="restoreArchivedWorker('${w.id}')">Restore Worker</button>
+                     <button class="btn danger small" onclick="confirmDeleteArchivedWorker('${w.id}')">Delete Permanently</button>`
                   : `<button class="btn danger small" onclick="archiveWorker('${w.id}')">Archive Worker</button>`}
               </div></td>
             </tr>`;
@@ -2384,6 +2385,125 @@ function filterWorkers(){
 
   const el=document.getElementById('workerResultCount');
   if(el)el.textContent=`Showing ${visible} of ${rows.length} worker${rows.length===1?'':'s'}.`;
+}
+
+
+async function confirmDeleteArchivedWorker(workerId){
+  if(profile?.role!=='admin'){
+    alert('Only an administrator can permanently delete workers.');
+    return;
+  }
+
+  const {data:w,error}=await sb
+    .from('profiles')
+    .select('id,full_name,active,archived_at')
+    .eq('id',workerId)
+    .single();
+
+  if(error)return alert(error.message);
+
+  if(!w.archived_at){
+    alert('This worker must be archived before permanent deletion.');
+    return;
+  }
+
+  const [{count:paymentCount,error:paymentError},{count:queryCount,error:queryError}] = await Promise.all([
+    sb.from('payments').select('id',{count:'exact',head:true}).eq('worker_id',workerId),
+    sb.from('payment_queries').select('id',{count:'exact',head:true}).eq('worker_id',workerId)
+  ]);
+
+  if(paymentError)return alert(paymentError.message);
+  if(queryError)return alert(queryError.message);
+
+  modalTitle.textContent='Delete Archived Worker';
+  modalBody.innerHTML=`
+    <div class="notice" style="border-color:#efb1b6;background:#fff1f2;color:#8f1d27">
+      <strong>This permanently removes the worker account.</strong><br>
+      Their Supabase Auth login and portal profile will be deleted. This cannot be undone.
+    </div>
+
+    <div class="card" style="box-shadow:none;margin-top:14px">
+      <div class="form-grid">
+        <div class="field"><label>Worker</label><input value="${esc(w.full_name||'Unnamed worker')}" disabled></div>
+        <div class="field"><label>Status</label><input value="Archived" disabled></div>
+        <div class="field"><label>Payments remaining</label><input value="${paymentCount||0}" disabled></div>
+        <div class="field"><label>Queries remaining</label><input value="${queryCount||0}" disabled></div>
+      </div>
+    </div>
+
+    ${(paymentCount||0)>0 || (queryCount||0)>0
+      ? `<div class="notice" style="margin-top:14px">
+           This worker cannot be deleted yet. Remove their remaining payments/queries first.
+         </div>
+         <div class="row" style="margin-top:16px">
+           <button class="btn secondary" onclick="closeModal()">Close</button>
+         </div>`
+      : `<div class="field" style="margin-top:14px">
+           <label>Type <strong>DELETE</strong> to confirm</label>
+           <input id="deleteArchivedWorkerConfirmText"
+                  autocomplete="off"
+                  placeholder="DELETE"
+                  oninput="updateDeleteArchivedWorkerButton()">
+         </div>
+
+         <div class="row" style="margin-top:16px">
+           <button id="deleteArchivedWorkerConfirmButton"
+                   class="btn danger"
+                   disabled
+                   onclick="runDeleteArchivedWorker('${workerId}')">
+             🗑 Permanently Delete Worker
+           </button>
+           <button class="btn secondary" onclick="closeModal()">Cancel</button>
+         </div>`}
+  `;
+
+  showModal();
+  setTimeout(()=>document.getElementById('deleteArchivedWorkerConfirmText')?.focus(),50);
+}
+
+function updateDeleteArchivedWorkerButton(){
+  const value=document.getElementById('deleteArchivedWorkerConfirmText')?.value||'';
+  const button=document.getElementById('deleteArchivedWorkerConfirmButton');
+  if(button)button.disabled=value!=='DELETE';
+}
+
+async function runDeleteArchivedWorker(workerId){
+  const value=document.getElementById('deleteArchivedWorkerConfirmText')?.value||'';
+  if(value!=='DELETE')return;
+
+  const button=document.getElementById('deleteArchivedWorkerConfirmButton');
+  if(button){
+    button.disabled=true;
+    button.textContent='Deleting…';
+  }
+
+  try{
+    const {data,error}=await sb.functions.invoke('delete-worker',{body:{worker_id:workerId}});
+    if(error)throw error;
+    if(!data?.ok)throw new Error(data?.error||'Worker deletion failed.');
+
+    modalTitle.textContent='Worker Deleted';
+    modalBody.innerHTML=`
+      <div class="notice" style="border-color:#b8dfc7;background:#edf9f1;color:#17653a">
+        <strong>${esc(data.worker_name||'Worker')} was permanently deleted.</strong><br>
+        Their portal profile and authentication account have been removed.
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn primary" onclick="closeModal();workersPage(true)">Back to Archived Workers</button>
+      </div>`;
+    showModal();
+  }catch(e){
+    modalTitle.textContent='Could Not Delete Worker';
+    modalBody.innerHTML=`
+      <div class="notice" style="border-color:#efb1b6;background:#fff1f2;color:#8f1d27">
+        <strong>The worker was not deleted.</strong><br>
+        ${esc(e.message||String(e))}
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn secondary" onclick="closeModal()">Close</button>
+      </div>`;
+    showModal();
+  }
 }
 
 let newPaymentItems=[];
