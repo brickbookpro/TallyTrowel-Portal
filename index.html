@@ -444,6 +444,16 @@ function paymentFinancials(p){
     actualNet:calcNetStatement(t.paid,actualCis,retention)
   };
 }
+
+function automaticPaymentStatus(p,currentStatus=''){
+  const t=totals(p);
+  const manualStatuses=['Disputed','Rejected / Unpaid','Corrected'];
+  if(manualStatuses.includes(currentStatus))return currentStatus;
+  if(t.paid<=0)return 'Awaiting Payment';
+  if(t.paid<t.booked)return 'Part Paid';
+  return 'Paid';
+}
+
 function currentUkTaxYearStart(){
   const now=new Date(), y=now.getFullYear();
   return now>=new Date(y,3,6)?y:y-1;
@@ -544,8 +554,16 @@ async function savePaymentDetails(paymentId){
   if(!site||!week){alert('Site and week ending are required.');return;}
   const paid=Number(epPaidTotal.value||0), cisRate=Number(epCisRate.value||20), retention=Number(epRetention.value||0);
   const cis=calcCisDeduction(paid,cisRate), net=calcNetStatement(paid,cis,retention);
+  let status=epStatus.value;
+  if(!['Disputed','Rejected / Unpaid','Corrected'].includes(status)){
+    const booked=Number(epBookedTotal.value||0);
+    if(paid<=0)status='Awaiting Payment';
+    else if(paid<booked)status='Part Paid';
+    else status='Paid';
+  }
+
   const {error}=await sb.from('payments').update({
-    site,week_ending:week,payment_date:epPaymentDate.value||null,status:epStatus.value,published:epPublished.value==='true',
+    site,week_ending:week,payment_date:epPaymentDate.value||null,status,published:epPublished.value==='true',
     cis_rate:cisRate,cis,retention,net_statement:net,updated_at:new Date().toISOString()
   }).eq('id',paymentId);
   if(error)return alert(error.message);
@@ -556,20 +574,29 @@ async function savePaymentDetails(paymentId){
 async function recalculatePaymentFinancials(paymentId){
   const {data:p,error}=await sb
     .from('payments')
-    .select('id,cis_rate,retention,payment_items(paid_amount)')
+    .select('id,status,cis_rate,retention,payment_items(booked_amount,paid_amount)')
     .eq('id',paymentId)
     .single();
   if(error)return;
 
   const paid=(p.payment_items||[]).reduce((sum,i)=>sum+Number(i.paid_amount||0),0);
+  const booked=(p.payment_items||[]).reduce((sum,i)=>sum+Number(i.booked_amount||0),0);
   const rate=Number(p.cis_rate??20);
   const retention=Number(p.retention||0);
   const cis=calcCisDeduction(paid,rate);
   const net=calcNetStatement(paid,cis,retention);
 
+  let status=p.status||'Awaiting Payment';
+  if(!['Disputed','Rejected / Unpaid','Corrected'].includes(status)){
+    if(paid<=0)status='Awaiting Payment';
+    else if(paid<booked)status='Part Paid';
+    else status='Paid';
+  }
+
   await sb.from('payments').update({
     cis,
     net_statement:net,
+    status,
     updated_at:new Date().toISOString()
   }).eq('id',paymentId);
 }
@@ -2357,6 +2384,15 @@ async function saveNewPayment(){
   const cis=calcCisDeduction(paidTotal,cisRate);
   const net=calcNetStatement(paidTotal,cis,retention);
 
+  const chosenStatus=document.getElementById('npStatus').value;
+  const bookedTotal=newPaymentItems.reduce((sum,i)=>sum+Number(i.booked_amount||0),0);
+  let overallStatus=chosenStatus;
+  if(!['Disputed','Rejected / Unpaid','Corrected'].includes(chosenStatus)){
+    if(paidTotal<=0)overallStatus='Awaiting Payment';
+    else if(paidTotal<bookedTotal)overallStatus='Part Paid';
+    else overallStatus='Paid';
+  }
+
   const paymentPayload={
     worker_id:workerId,
     site,
@@ -2366,7 +2402,7 @@ async function saveNewPayment(){
     cis,
     retention,
     net_statement:net,
-    status:document.getElementById('npStatus').value,
+    status:overallStatus,
     published:true
   };
 
