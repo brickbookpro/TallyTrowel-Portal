@@ -33,6 +33,48 @@
 .filterbar .field{margin:0;min-width:180px;flex:1}
 .filterbar .field.compact{flex:0 1 220px}
 .result-count{font-size:13px;color:var(--muted);margin:8px 0 0}
+
+@media(max-width:700px){
+  .queries-mobile-table thead{display:none}
+  .queries-mobile-table,
+  .queries-mobile-table tbody,
+  .queries-mobile-table tr,
+  .queries-mobile-table td{display:block;width:100%}
+  .queries-mobile-table tr{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:12px;
+    box-shadow:0 2px 8px rgba(15,47,77,.05)
+  }
+  .queries-mobile-table td{
+    border:0!important;
+    padding:5px 0!important;
+    white-space:normal!important
+  }
+  .queries-mobile-table td[data-label]::before{
+    content:attr(data-label);
+    display:block;
+    font-size:11px;
+    font-weight:800;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    margin-bottom:2px
+  }
+  .queries-mobile-table td.query-action{
+    margin-top:8px
+  }
+  .queries-mobile-table td.query-action::before{
+    display:none
+  }
+  .queries-mobile-table td.query-action .btn{
+    width:100%;
+    min-height:42px
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1088,7 +1130,7 @@ async function adminQueries(){
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table class="queries-mobile-table">
         <thead><tr><th>Worker</th><th>Payment</th><th>Latest Message</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
           ${qs.map(q=>{
@@ -1097,11 +1139,11 @@ async function adminQueries(){
             const latestText=latest?.message||'';
             const searchText=`${q.profiles?.full_name||''} ${q.payments?.site||''} ${latestText}`.toLowerCase();
             return `<tr class="query-filter-row" data-search="${esc(searchText)}" data-status="${esc((q.status||'').toLowerCase())}">
-              <td>${esc(q.profiles?.full_name||'')}</td>
+              <td data-label="Worker">${esc(q.profiles?.full_name||'')}</td>
               <td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td>
               <td>${latestText?`${esc(latestText.slice(0,90))}${latestText.length>90?'…':''}`:'<span class="meta">No message</span>'}</td>
-              <td><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td>
-              <td><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td>
+              <td data-label="Status"><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td>
+              <td class="query-action"><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td>
             </tr>`;
           }).join('') || '<tr><td colspan="5">No payment queries.</td></tr>'}
         </tbody>
