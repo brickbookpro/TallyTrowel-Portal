@@ -75,6 +75,51 @@
   }
 }
 
+
+.desktop-query-view{display:block}
+.mobile-query-view{display:none}
+@media(max-width:900px){
+  .desktop-query-view{display:none!important}
+  .mobile-query-view{display:block!important}
+  .mobile-query-card{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:14px;
+    margin-bottom:12px;
+    box-shadow:0 2px 8px rgba(15,47,77,.05)
+  }
+  .mobile-query-card .mq-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:10px;
+    margin-bottom:10px
+  }
+  .mobile-query-card .mq-worker{
+    font-weight:800;
+    font-size:16px
+  }
+  .mobile-query-card .mq-site{
+    font-size:13px;
+    color:var(--muted);
+    margin-top:3px
+  }
+  .mobile-query-card .mq-message{
+    background:#f6f8fa;
+    border-radius:9px;
+    padding:10px;
+    font-size:13px;
+    line-height:1.45;
+    margin:10px 0
+  }
+  .mobile-query-card .mq-open{
+    width:100%;
+    min-height:44px;
+    margin-top:4px
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1100,8 +1145,22 @@ async function adminQueries(){
   const reviewingCount=qs.filter(q=>q.status==='Reviewing').length;
   const resolvedCount=qs.filter(q=>q.status==='Resolved').length;
 
+  const rows=qs.map(q=>{
+    const msgs=[...(q.query_messages||[])].sort((a,b)=>a.created_at.localeCompare(b.created_at));
+    const latest=msgs[msgs.length-1];
+    const latestText=latest?.message||'';
+    const searchText=`${q.profiles?.full_name||''} ${q.payments?.site||''} ${latestText}`.toLowerCase();
+    return {
+      q,
+      latestText,
+      searchText,
+      status:(q.status||'').toLowerCase()
+    };
+  });
+
   content.innerHTML=`
     <div class="hero"><h2>Payment Queries</h2><p>Review worker questions and quickly find anything still needing attention.</p></div>
+
     <div class="grid stats" style="margin-bottom:16px">
       ${stat('Open',openCount)}
       ${stat('Reviewing',reviewingCount)}
@@ -1129,25 +1188,41 @@ async function adminQueries(){
       <div id="queryResultCount" class="result-count"></div>
     </div>
 
-    <div class="table-wrap">
-      <table class="queries-mobile-table">
-        <thead><tr><th>Worker</th><th>Payment</th><th>Latest Message</th><th>Status</th><th>Action</th></tr></thead>
-        <tbody>
-          ${qs.map(q=>{
-            const msgs=[...(q.query_messages||[])].sort((a,b)=>a.created_at.localeCompare(b.created_at));
-            const latest=msgs[msgs.length-1];
-            const latestText=latest?.message||'';
-            const searchText=`${q.profiles?.full_name||''} ${q.payments?.site||''} ${latestText}`.toLowerCase();
-            return `<tr class="query-filter-row" data-search="${esc(searchText)}" data-status="${esc((q.status||'').toLowerCase())}">
-              <td data-label="Worker">${esc(q.profiles?.full_name||'')}</td>
-              <td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td>
-              <td>${latestText?`${esc(latestText.slice(0,90))}${latestText.length>90?'…':''}`:'<span class="meta">No message</span>'}</td>
-              <td data-label="Status"><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td>
-              <td class="query-action"><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td>
-            </tr>`;
-          }).join('') || '<tr><td colspan="5">No payment queries.</td></tr>'}
-        </tbody>
-      </table>
+    <div class="desktop-query-view">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Worker</th><th>Payment</th><th>Latest Message</th><th>Status</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map(({q,latestText,searchText,status})=>`
+              <tr class="query-filter-row" data-search="${esc(searchText)}" data-status="${esc(status)}">
+                <td>${esc(q.profiles?.full_name||'')}</td>
+                <td>${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</td>
+                <td>${latestText?`${esc(latestText.slice(0,90))}${latestText.length>90?'…':''}`:'<span class="meta">No message</span>'}</td>
+                <td><span class="badge ${statusClass(q.status)}">${esc(q.status)}</span></td>
+                <td><button class="btn primary small" onclick="openQuery('${q.id}')">Open</button></td>
+              </tr>`).join('') || '<tr><td colspan="5">No payment queries.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mobile-query-view">
+      ${rows.map(({q,latestText,searchText,status})=>`
+        <div class="mobile-query-card query-filter-row" data-search="${esc(searchText)}" data-status="${esc(status)}">
+          <div class="mq-head">
+            <div>
+              <div class="mq-worker">${esc(q.profiles?.full_name||'')}</div>
+              <div class="mq-site">${esc(q.payments?.site||'')} • ${date(q.payments?.week_ending||'')}</div>
+            </div>
+            <span class="badge ${statusClass(q.status)}">${esc(q.status)}</span>
+          </div>
+          <div class="mq-message">
+            ${latestText?`${esc(latestText.slice(0,180))}${latestText.length>180?'…':''}`:'<span class="meta">No message</span>'}
+          </div>
+          <button class="btn primary mq-open" onclick="openQuery('${q.id}')">Open Query</button>
+        </div>`).join('') || '<div class="card">No payment queries.</div>'}
     </div>`;
 
   filterAdminQueries();
@@ -1157,18 +1232,21 @@ function filterAdminQueries(){
   const search=(document.getElementById('querySearch')?.value||'').trim().toLowerCase();
   const status=document.getElementById('queryStatusFilter')?.value??'attention';
   const rows=[...document.querySelectorAll('.query-filter-row')];
-  let visible=0;
 
   rows.forEach(row=>{
     const rowStatus=row.dataset.status;
     const show=(!search||row.dataset.search.includes(search))
       &&(status==='attention'?rowStatus!=='resolved':(!status||rowStatus===status));
     row.classList.toggle('hidden',!show);
-    if(show)visible++;
   });
 
+  const mobileRows=[...document.querySelectorAll('.mobile-query-view .query-filter-row')];
+  const desktopRows=[...document.querySelectorAll('.desktop-query-view .query-filter-row')];
+  const representative=mobileRows.length?mobileRows:desktopRows;
+  const visible=representative.filter(r=>!r.classList.contains('hidden')).length;
+
   const el=document.getElementById('queryResultCount');
-  if(el)el.textContent=`Showing ${visible} of ${rows.length} quer${rows.length===1?'y':'ies'}.`;
+  if(el)el.textContent=`Showing ${visible} of ${representative.length} quer${representative.length===1?'y':'ies'}.`;
 }
 
 async function openQuery(id){
