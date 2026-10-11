@@ -127,6 +127,61 @@
   filter:grayscale(.15)
 }
 
+
+#ttFilesRoot [hidden]{display:none!important}
+#ttFilesRoot{color:var(--ink);font-size:14px}
+#ttFilesRoot button{border:0;border-radius:8px;padding:11px 15px;cursor:pointer;background:#e8eef4;color:var(--navy);font-weight:600}
+#ttFilesRoot button.primary,#ttFilesRoot a.primary{background:var(--blue);color:white}
+#ttFilesRoot button:disabled{opacity:.55;cursor:default}
+#ttFilesRoot button:focus-visible,#ttFilesRoot a:focus-visible,#ttFilesRoot input:focus-visible,#ttFilesRoot select:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+#ttFilesRoot .heading,#ttFilesRoot .section-line,#ttFilesRoot .modal-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+#ttFilesRoot h1{font-size:28px;color:var(--navy);margin:8px 0}
+#ttFilesRoot h2{font-size:20px;color:var(--navy)}
+#ttFilesRoot p{line-height:1.6}
+#ttFilesRoot .eyebrow{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--blue)}
+#ttFilesRoot .intro{padding:15px 18px;background:#eaf5ee;border-radius:12px;margin:20px 0}
+#ttFilesRoot .intro p{margin:5px 0}
+#ttFilesRoot .hint{font-size:12px;color:var(--muted);line-height:1.6}
+#ttFilesRoot .upload-panel{margin:24px 0;padding:22px;background:white;border:1px solid var(--line);border-radius:12px}
+#ttFilesRoot .upload-panel summary{font-weight:700;font-size:18px;cursor:pointer;color:var(--navy)}
+#ttFilesRoot input,#ttFilesRoot select{padding:12px;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);font:inherit;max-width:100%}
+#ttFilesRoot #ttf-upload-fields{border:0;padding:0;margin:20px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:18px;min-width:0}
+#ttFilesRoot #ttf-upload-fields label{display:grid;gap:8px;font-weight:600;min-width:0}
+#ttFilesRoot #ttf-upload-fields input,#ttFilesRoot #ttf-upload-fields select{width:100%;min-width:0}
+#ttFilesRoot .wide{grid-column:1/-1}
+#ttFilesRoot #ttf-upload-fields button{justify-self:start}
+#ttFilesRoot #ttf-upload-fields:disabled,#ttFilesRoot #ttf-sharing-fields:disabled{opacity:.6}
+#ttFilesRoot #ttf-search{width:min(520px,100%)}
+#ttFilesRoot .search{display:block;width:100%}
+#ttFilesRoot #ttf-file-view-controls{margin:18px 0}
+#ttFilesRoot .file-row{background:white;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:12px;display:flex;gap:18px;align-items:center}
+#ttFilesRoot .file-icon{font-size:12px;font-weight:700;color:var(--blue);background:#eaf1f7;padding:16px;border-radius:9px}
+#ttFilesRoot .file-copy{flex:1;min-width:0}
+#ttFilesRoot .file-copy h3{margin:0 0 8px;overflow-wrap:anywhere}
+#ttFilesRoot .file-copy p{margin:4px 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+#ttFilesRoot .file-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+#ttFilesRoot .empty{padding:40px 20px;background:white;border:1px dashed var(--line);border-radius:12px;text-align:center;color:var(--muted)}
+#ttFilesRoot #ttf-message{min-height:24px}
+#ttFilesRoot .error{color:#a12d28}
+#ttFilesRoot dialog{border:1px solid var(--line);border-radius:16px;padding:24px;width:min(680px,95vw);max-height:90vh;overflow:auto;background:white;color:var(--ink);box-shadow:var(--shadow)}
+#ttFilesRoot dialog::backdrop{background:#0d243c99}
+#ttFilesRoot #ttf-preview{width:min(950px,95vw)}
+#ttFilesRoot #ttf-preview-content img{display:block;max-width:100%;max-height:70vh;margin:auto}
+#ttFilesRoot .close{font-size:24px;padding:4px 12px}
+#ttFilesRoot .pdf-preview{padding:24px;text-align:center}
+#ttFilesRoot .pdf-open{display:inline-block;padding:14px 20px;border-radius:8px;text-decoration:none;margin:10px 0}
+#ttFilesRoot #ttf-sharing-fields{border:0;padding:0;margin:20px 0;min-width:0}
+#ttFilesRoot #ttf-sharing-file,#ttFilesRoot #ttf-archive-file{font-weight:700;overflow-wrap:anywhere}
+#ttFilesRoot .sharing-label{display:grid;gap:9px;font-weight:600}
+#ttFilesRoot #ttf-sharing-content>.primary{margin-top:12px}
+#ttFilesRoot .sharing-note{color:var(--muted);padding:14px;background:#eef4f8;border-radius:8px}
+#ttFilesRoot .sharing-worker{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--line);padding:16px 0}
+#ttFilesRoot .sharing-worker-copy{display:grid;gap:6px;min-width:0;overflow-wrap:anywhere}
+#ttFilesRoot .sharing-worker span{font-size:12px;color:var(--muted)}
+#ttFilesRoot #ttf-archive-dialog{width:min(570px,95vw)}
+#ttFilesRoot .archive-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
+@media(max-width:700px){#ttFilesRoot .file-row{align-items:flex-start;flex-wrap:wrap}#ttFilesRoot .file-actions{width:100%}#ttFilesRoot .heading{flex-wrap:wrap}#ttFilesRoot #ttf-upload-fields{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -380,6 +435,7 @@ async function signIn(){
 }
 
 async function signOut(){
+  if(ttFilesCleanup){ttFilesCleanup();ttFilesCleanup=null;}
   await logActivity('LOGOUT','User logged out of the portal');
   await sb.auth.signOut();
   location.reload();
@@ -460,8 +516,8 @@ function renderShell(){
   sideRole.textContent=profile.role==='admin'?'Administrator':'Worker account';
 
   const items=profile.role==='admin'
-    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['accounts','📊 Annual Accounts'],['queries','💬 Queries'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
-    : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['details','👤 My Details']];
+    ? [['dashboard','🏠 Dashboard'],['payments','💷 Payments'],['accounts','📊 Annual Accounts'],['queries','💬 Queries'],['files','📁 Files'],['workers','👷 Workers'],['security','🔐 Security & Activity'],['backup','💾 Backup & Restore']]
+    : [['dashboard','🏠 Dashboard'],['payments','💷 My Payments'],['queries','💬 My Queries'],['files','📁 Files'],['details','👤 My Details']];
 
   nav.innerHTML=items.map(([id,l])=>`
     <button id="nav-${id}" class="navbtn ${page===id?'active':''}" onclick="go('${id}')">
@@ -491,6 +547,8 @@ async function refreshAdminQueryBadge(){
 
 function go(p){page=p;renderShell()}
 async function renderPage(){
+  if(ttFilesCleanup){ttFilesCleanup();ttFilesCleanup=null;}
+  if(page==='files')return filesPage();
   if(profile.role==='admin'){
     if(page==='dashboard')return adminDashboard();
     if(page==='payments')return adminPayments();
@@ -1867,6 +1925,7 @@ async function backupRestorePage(){
       <p class="meta">
         Supabase login passwords, API/secret keys and authentication provider secrets are deliberately not included.
         Worker Auth accounts remain protected inside Supabase Authentication.
+        <br><strong>Files are not included:</strong> uploaded PDFs/photos, file records, sharing permissions and file activity are not saved or restored by this JSON backup. Keep separate original copies of important files.
       </p>
     </div>`;
 }
@@ -2888,6 +2947,240 @@ async function securityPage(){
   </table>`;
 }
 function showModal(){modal.classList.remove('hidden')}function closeModal(){modal.classList.add('hidden')}
+
+let ttFilesCleanup=null;
+async function filesPage(){
+ const expectedUserId=profile?.id;
+ content.innerHTML='<div id="ttFilesRoot">'+"<section id=\"ttf-portal\" hidden><div class=\"heading\"><div><div class=\"eyebrow\">YOUR SITE. ALL IN ONE PLACE.</div><h1>Your files</h1><p>Files available to your signed-in account.</p></div><button id=\"ttf-refresh\" class=\"primary\">Refresh files</button></div><section class=\"intro\"><div><b>Private by default</b><p>Upload a PDF or site photo. New uploads are private to you and your company administrators.</p></div></section><details class=\"upload-panel\"><summary>Upload a file</summary><p>PDF, PNG, JPEG or WEBP \u00b7 Up to 50 MB per file.</p><form id=\"ttf-upload-form\"><fieldset id=\"ttf-upload-fields\"><label class=\"wide\">Choose file<input id=\"ttf-upload-file\" type=\"file\" accept=\".pdf,.png,.jpg,.jpeg,.webp\" required></label><label class=\"wide\">Title<input id=\"ttf-upload-title\" maxlength=\"120\" required placeholder=\"For example: Plot 42 drawings\"></label><label>Category<select id=\"ttf-upload-category\"><option>Documents</option><option>Drawings</option><option>Site Photos</option><option>Instructions</option><option>Other</option></select></label><label>Site / plot (optional)<input id=\"ttf-upload-site\" maxlength=\"80\"></label><label class=\"wide\">Description (optional)<input id=\"ttf-upload-description\" maxlength=\"1500\"></label><p class=\"hint wide\">Visible to you and company administrators. Other workers will need sharing permission.</p><button class=\"primary\" type=\"submit\">Upload privately</button></fieldset></form><p id=\"ttf-upload-result\" role=\"status\" aria-live=\"polite\"></p></details><div class=\"tools\"><label class=\"search\"><input id=\"ttf-search\" type=\"search\" placeholder=\"Search your files\u2026\" aria-label=\"Search your files\"></label></div><div id=\"ttf-file-view-controls\" hidden><label>Show <select id=\"ttf-file-view\"><option value=\"active\">Active files</option><option value=\"archived\">Archived files</option></select></label></div><div class=\"section-line\"><h2 id=\"ttf-file-list-title\">Available files</h2><span id=\"ttf-count\"></span></div><div id=\"ttf-file-list\"></div></section><p id=\"ttf-message\" role=\"status\" aria-live=\"polite\"></p><dialog id=\"ttf-preview\"><div class=\"modal-head\"><h2 id=\"ttf-preview-title\">Preview</h2><button id=\"ttf-close-preview\" class=\"close\" aria-label=\"Close preview\">\u00d7</button></div><div id=\"ttf-preview-content\"></div></dialog><dialog id=\"ttf-sharing\" aria-labelledby=\"ttf-sharing-title\"><div class=\"modal-head\"><h2 id=\"ttf-sharing-title\">Manage sharing</h2><button id=\"ttf-close-sharing\" class=\"close\" aria-label=\"Close sharing\">\u00d7</button></div><p id=\"ttf-sharing-file\"></p><p class=\"hint\">The owner and company administrators retain access. Removing access prevents future downloads; it cannot remove copies already downloaded.</p><fieldset id=\"ttf-sharing-fields\"><div id=\"ttf-sharing-content\"></div></fieldset><p id=\"ttf-sharing-result\" role=\"status\" aria-live=\"polite\"></p><button id=\"ttf-reload-sharing\">Reload sharing details</button></dialog><dialog id=\"ttf-archive-dialog\" aria-labelledby=\"ttf-archive-title\"><div class=\"modal-head\"><h2 id=\"ttf-archive-title\">Archive file</h2></div><p id=\"ttf-archive-file\"></p><p id=\"ttf-archive-explanation\"></p><p id=\"ttf-archive-result\" role=\"status\" aria-live=\"polite\"></p><div class=\"archive-actions\"><button id=\"ttf-archive-cancel\">Cancel</button><button id=\"ttf-archive-confirm\" class=\"primary\">Archive file</button></div></dialog>"+ '</div>';
+ const root=document.getElementById('ttFilesRoot');
+const PROJECT_URL=window.TALLYTROWEL_SUPABASE_URL.replace(/\/$/,'');
+const KEY=window.TALLYTROWEL_SUPABASE_ANON_KEY;
+async function request(path,{token,method='GET',body,blob=false}={}){
+ token=await currentToken();
+ const headers={apikey:KEY};if(token)headers.Authorization=`Bearer ${token}`;if(body!==undefined)headers['Content-Type']='application/json';
+ const response=await fetch(PROJECT_URL+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',redirect:'error'});
+ if(!response.ok){const error=new Error(response.status===401?'Session expired or sign-in rejected. Please sign in again.':response.status===403?'Access denied for this account.':`Request failed (${response.status}). Please try again.`);error.status=response.status;throw error;}
+ if(blob)return response.blob();if(response.status===204)return null;return response.json();
+}
+const getProfile=(token,id)=>request('/rest/v1/profiles?select=id,full_name,role,active,archived_at&id=eq.'+encodeURIComponent(id),{token});
+async function getFiles(token){
+ const all=[];
+ for(let offset=0;offset<=10000;offset+=500){
+  const rows=await request('/rest/v1/portal_files?select=id,title,description,original_name,mime_type,size_bytes,object_key,status,audience,archived_at,category,site_label&order=created_at.desc,id.desc&limit=500&offset='+offset,{token});
+  if(!Array.isArray(rows))throw new Error('File list could not be read. Please refresh.');
+  all.push(...rows);
+  if(all.length>10000)throw new Error('This file list is too large to load. Contact your administrator.');
+  if(rows.length<500)return all;
+ }
+}
+const downloadFile=(token,file)=>request('/functions/v1/files-download',{token,method:'POST',body:{file_id:file.id},blob:true});
+
+async function uploadFile(token,file,details){
+ token=await currentToken();
+ const mimeByExtension={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp'};
+ const mime=mimeByExtension[file.name.split('.').pop().toLowerCase()];
+ if(!mime)throw new Error('Choose a PDF, PNG, JPEG or WEBP file.');
+ if(file.size<1||file.size>50*1024*1024)throw new Error('Choose a non-empty file no larger than 50 MB.');
+ if(!details.title?.trim())throw new Error('Enter a title for this file.');
+ const metadata={title:details.title,description:details.description,category:details.category,site_label:details.site_label,original_name:file.name,mime_type:mime,size_bytes:file.size};
+ let response;
+ try{response=await fetch(PROJECT_URL+'/functions/v1/files-upload',{method:'POST',headers:{apikey:KEY,Authorization:`Bearer ${token}`,'Content-Type':mime,'x-file-metadata':encodeURIComponent(JSON.stringify(metadata))},body:file,cache:'no-store',redirect:'error'});}
+ catch{throw new Error('The connection was interrupted. Refresh your file list before trying again; the upload may have completed.');}
+ const data=await response.json().catch(()=>null);
+ if(!response.ok){const error=new Error(response.status===401?'Your session expired. Please sign in again.':typeof data?.error==='string'?data.error.slice(0,400):`Upload failed (${response.status}). Refresh your file list before trying again.`);error.status=response.status;throw error;}
+ if(response.status!==201||data?.status!=='ready'||data?.audience!=='restricted')throw new Error('The upload result was unclear. Refresh your file list before trying again.');
+ return data;
+}
+
+async function manageSharing(token,details){
+ token=await currentToken();
+ let response;
+ try{response=await fetch(PROJECT_URL+'/functions/v1/files-sharing',{method:'POST',headers:{apikey:KEY,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(details),cache:'no-store',redirect:'error'});}
+ catch{throw new Error('Connection interrupted. Reload sharing details to check whether the change was saved.');}
+ const data=await response.json().catch(()=>null);
+ if(!response.ok){const error=new Error(typeof data?.error==='string'?data.error.slice(0,400):`Sharing request failed (${response.status}). Reload sharing details.`);error.status=response.status;throw error;}
+ if(data?.file_id!==details.file_id||!['restricted','company'].includes(data?.audience)||!Array.isArray(data?.workers))throw new Error('Sharing result was incomplete. Reload sharing details.');
+ return data;
+}
+
+async function manageArchive(token,details){
+ token=await currentToken();
+ let response;
+ try{response=await fetch(PROJECT_URL+'/functions/v1/files-archive',{method:'POST',headers:{apikey:KEY,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(details),cache:'no-store',redirect:'error'});}
+ catch{throw new Error('Connection interrupted. Close this dialog and refresh your file list to check whether the change was saved.');}
+ const data=await response.json().catch(()=>null);
+ if(!response.ok){const error=new Error(typeof data?.error==='string'?data.error.slice(0,400):`Archive request failed (${response.status}). Refresh your file list.`);error.status=response.status;throw error;}
+ if(data?.file_id!==details.file_id||data?.action!==details.action||data?.archived!==(details.action==='archive')||typeof data?.changed!=='boolean')throw new Error('Archive result was unclear. Close this dialog and refresh your file list.');
+ return data;
+}
+const $=id=>root.querySelector('#ttf-'+id);
+let archiveFile=null,archiveAction=null,archiveBusy=false;
+let currentRole=null,sharingFile=null,sharingEpoch=0,sharingBusy=false;
+let session=null,files=[],epoch=0,previewUrl=null,expiryTimer;const urls=new Set();
+function message(text,error=false){$('message').textContent=text;$('message').classList.toggle('error',error);}
+function closePreview(){if($('preview').open)$('preview').close();$('preview-content').replaceChildren();if(previewUrl){URL.revokeObjectURL(previewUrl);urls.delete(previewUrl);previewUrl=null;}}
+let destroyed=false,authSubscription=null,refreshVersion=0;
+function clearSession(){
+ if(destroyed)return;
+ destroyed=true;epoch++;refreshVersion++;
+ closeArchive(true);closeSharing(true);closePreview();
+ files=[];session=null;currentRole=null;
+ for(const url of urls)URL.revokeObjectURL(url);urls.clear();
+ $('file-list').replaceChildren();$('upload-form').reset();$('upload-result').textContent='';
+ $('search').value='';$('count').textContent='';$('portal').hidden=true;
+ authSubscription?.unsubscribe();window.removeEventListener('pagehide',clearSession);
+}
+function handleError(error){if(error.status===401)clearSession();message(error.message||'Unable to connect. Check your connection and try again.',true);}
+async function refresh(){
+ const version=epoch,requestVersion=++refreshVersion;if(!session||destroyed)return;
+ $('refresh').disabled=true;files=[];render();closePreview();message('Loading files…');
+ try{const result=await getFiles(session.access_token);if(version!==epoch||requestVersion!==refreshVersion)return;files=result;render();message('Files refreshed.');}
+ catch(error){if(version===epoch&&requestVersion===refreshVersion)handleError(error);}
+ finally{if(version===epoch&&requestVersion===refreshVersion)$('refresh').disabled=false;}
+}
+function element(tag,text,className){const el=document.createElement(tag);el.textContent=text;if(className)el.className=className;return el;}
+function render(){const root=$('file-list');root.replaceChildren();const term=$('search').value.toLowerCase();const archived=currentRole==='admin'&&$('file-view').value==='archived';$('file-list-title').textContent=archived?'Archived files':'Available files';const shown=files.filter(f=>Boolean(f.archived_at)===archived&&[f.title,f.original_name,f.description,f.site_label].some(s=>(s||'').toLowerCase().includes(term)));$('count').textContent=`${shown.length} file${shown.length===1?'':'s'}`;if(!shown.length){root.append(element('div',term?'No files match your search.':'No files are available to this account.','empty'));return;}for(const file of shown){const row=element('article','','file-row');row.append(element('div',file.mime_type==='application/pdf'?'PDF':'IMAGE','file-icon'));const copy=element('div','','file-copy');copy.append(element('h3',file.title),element('p',file.original_name),element('p',`${file.category} · ${(file.size_bytes/1024).toFixed(1)} KB · ${file.status!=='ready'?file.status==='pending'?'Processing — refresh to check':file.status==='failed'?'Upload incomplete':'Unavailable':file.archived_at?'Archived':file.audience==='company'?'Company shared':'Restricted'}`));if(file.site_label)copy.append(element('p','Site / plot: '+file.site_label));if(file.description)copy.append(element('p',file.description));row.append(copy);const actions=element('div','','file-actions');for(const mode of ['Preview','Download']){const button=element('button',mode);button.disabled=file.status!=='ready';button.addEventListener('click',()=>openFile(file,mode,button));actions.append(button);}if(currentRole==='admin'&&file.status==='ready'&&!file.archived_at){const share=element('button','Manage sharing');share.addEventListener('click',()=>openSharing(file));actions.append(share);}if(currentRole==='admin'&&file.status==='ready'){const archive=element('button',file.archived_at?'Restore':'Archive');archive.addEventListener('click',()=>openArchive(file));actions.append(archive);}row.append(actions);root.append(row);}}
+async function openFile(file,mode,button){const version=epoch;if(!session)return;button.disabled=true;message('Fetching file…');try{const blob=await downloadFile(session.access_token,file);if(version!==epoch)return;if(!['image/png','image/jpeg','image/webp','application/pdf'].includes(file.mime_type))throw new Error('This file type is not supported.');const url=URL.createObjectURL(new Blob([blob],{type:file.mime_type}));urls.add(url);if(mode==='Download'){const a=document.createElement('a');a.href=url;a.download=file.original_name.replace(/[\\/\x00-\x1f]/g,'_');document.body.append(a);a.click();a.remove();setTimeout(()=>{URL.revokeObjectURL(url);urls.delete(url);},30000);message('Download requested. Check your browser downloads.');}else{closePreview();previewUrl=url;$('preview-title').textContent=file.title;if(file.mime_type==='application/pdf'){
+ const panel=element('div','','pdf-preview');
+ panel.append(element('p','Your PDF is ready. Open it in a separate tab to view it.'));
+ const link=element('a','Open PDF in new tab','primary pdf-open');
+ link.href=url;link.target='_blank';link.rel='noopener noreferrer';
+ panel.append(link,element('p','If your browser downloads PDFs automatically, open the file from Downloads.','hint'));
+ $('preview-content').append(panel);
+}else{const view=document.createElement('img');view.alt=file.title;view.src=url;$('preview-content').append(view);}$('preview').showModal();message('File loaded.');}}catch(error){if(version===epoch)handleError(error);}finally{if(version===epoch)button.disabled=false;}}
+$('refresh').addEventListener('click',refresh);$('search').addEventListener('input',render);$('close-preview').addEventListener('click',closePreview);$('preview').addEventListener('cancel',event=>{event.preventDefault();closePreview();});window.addEventListener('pagehide',clearSession);
+
+$('upload-file').addEventListener('change',()=>{const file=$('upload-file').files[0];if(file&&!$('upload-title').value.trim())$('upload-title').value=file.name.replace(/\.[^.]+$/,'').slice(0,120);});
+$('upload-form').addEventListener('submit',async event=>{
+ event.preventDefault();if(!session)return;
+ const file=$('upload-file').files[0];if(!file)return;
+ const version=epoch;
+ $('upload-fields').disabled=true;$('upload-result').classList.remove('error');
+ $('upload-result').textContent='Uploading and saving… Please keep this page open.';
+ try{
+  await uploadFile(session.access_token,file,{title:$('upload-title').value.trim(),description:$('upload-description').value.trim(),category:$('upload-category').value,site_label:$('upload-site').value.trim()});
+  if(version!==epoch)return;
+  $('upload-form').reset();$('search').value='';$('file-view').value='active';
+  $('upload-result').textContent='Upload complete — private to you and company administrators.';
+  await refresh();
+ }catch(error){if(version===epoch){if(error.status===401)handleError(error);else{$('upload-result').textContent=error.message;$('upload-result').classList.add('error');}}}
+ finally{if(version===epoch)$('upload-fields').disabled=false;}
+});
+
+function closeSharing(force=false){
+ if(sharingBusy&&!force)return;
+ sharingEpoch++;sharingFile=null;sharingBusy=false;
+ if($('sharing').open)$('sharing').close();
+ $('sharing-content').replaceChildren();$('sharing-result').textContent='';$('sharing-file').textContent='';
+}
+function sharingStatus(text,error=false){$('sharing-result').textContent=text;$('sharing-result').classList.toggle('error',error);}
+function sharingLock(locked){sharingBusy=locked;$('sharing-fields').disabled=locked;$('close-sharing').disabled=locked;$('reload-sharing').disabled=locked;}
+async function openSharing(file){
+ if(!session||currentRole!=='admin')return;
+ closeSharing(true);sharingFile=file;$('sharing-file').textContent=file.title;
+ $('sharing').showModal();await changeSharing('inspect');
+}
+function renderSharing(data){
+ const root=$('sharing-content');root.replaceChildren();
+ const label=element('label','Who can view this file?','sharing-label');
+ const select=document.createElement('select');select.id='ttf-sharing-audience';
+ for(const [value,text] of [['restricted','Owner, admins and selected workers'],['company','Everyone active in this portal']]){const option=element('option',text);option.value=value;select.append(option);}
+ select.value=data.audience;label.append(select);root.append(label);
+ const apply=element('button','Apply visibility','primary');apply.type='button';apply.disabled=true;
+ select.addEventListener('change',()=>{apply.disabled=select.value===data.audience;});
+ apply.addEventListener('click',()=>changeSharing('set_audience',{audience:select.value}));root.append(apply);
+ root.append(element('p',data.audience==='company'?'Company-wide access is on. Switch to selected workers to limit access. Your individual selections are kept.':'Only the owner, admins and workers marked Shared can view this file.','sharing-note'));
+ root.append(element('h3','Selected workers'));
+ if(!data.workers.length)root.append(element('p','No other eligible workers are available.'));
+ for(const worker of data.workers){
+  const row=element('div','','sharing-worker'),copy=element('div','','sharing-worker-copy');
+  copy.append(element('strong',worker.full_name));
+  copy.append(element('span',!worker.active?'Inactive — access blocked':worker.shared?'Shared':'Not individually shared'));
+  const button=element('button',worker.shared?'Remove access':'Share');button.type='button';
+  button.disabled=data.audience==='company'||(!worker.shared&&!worker.eligible);
+  button.addEventListener('click',()=>changeSharing(worker.shared?'revoke':'grant',{recipient_id:worker.id}));
+  row.append(copy,button);root.append(row);
+ }
+}
+async function changeSharing(action,extra={}){
+ if(!session||!sharingFile||sharingBusy)return;
+ const version=epoch,viewVersion=sharingEpoch,file=sharingFile;
+ sharingLock(true);sharingStatus(action==='inspect'?'Loading sharing details…':'Saving sharing change…');
+ try{
+  const data=await manageSharing(session.access_token,{file_id:file.id,action,...extra});
+  if(version!==epoch||viewVersion!==sharingEpoch)return;
+  renderSharing(data);sharingStatus(action==='inspect'?'Sharing details loaded.':data.changed?'Sharing updated.':'No change was needed.');
+  if(action!=='inspect')await refresh();
+ }catch(error){
+  if(version===epoch&&viewVersion===sharingEpoch){
+   $('sharing-content').replaceChildren();sharingStatus(error.message,true);
+   if(error.status===401)handleError(error);
+  }
+ }finally{if(version===epoch&&viewVersion===sharingEpoch)sharingLock(false);}
+}
+$('close-sharing').addEventListener('click',()=>closeSharing());
+$('sharing').addEventListener('cancel',event=>{event.preventDefault();closeSharing();});
+$('reload-sharing').addEventListener('click',()=>changeSharing('inspect'));
+
+$('file-view').addEventListener('change',render);
+function closeArchive(force=false){
+ if(archiveBusy&&!force)return;
+ if($('archive-dialog').open)$('archive-dialog').close();
+ archiveFile=null;archiveAction=null;archiveBusy=false;
+ $('archive-file').textContent='';$('archive-result').textContent='';
+}
+function openArchive(file){
+ if(!session||currentRole!=='admin'||archiveBusy)return;
+ archiveFile=file;archiveAction=file.archived_at?'restore':'archive';
+ const restoring=archiveAction==='restore';
+ $('archive-title').textContent=restoring?'Restore file privately':'Archive file';
+ $('archive-file').textContent=file.title;
+ $('archive-explanation').textContent=restoring?'This restores access for the owner and company administrators. Company-wide access and all previous individual shares will be removed. You can share it again afterwards.':'This hides the file from all workers, including its owner. Administrators can still view and restore it from Archived files. The stored file is retained.';
+ $('archive-result').textContent='';$('archive-result').classList.remove('error');
+ $('archive-confirm').textContent=restoring?'Restore privately':'Archive file';
+ $('archive-confirm').disabled=false;$('archive-cancel').disabled=false;
+ $('archive-dialog').showModal();
+}
+$('archive-cancel').addEventListener('click',()=>closeArchive());
+$('archive-dialog').addEventListener('cancel',event=>{event.preventDefault();closeArchive();});
+$('archive-confirm').addEventListener('click',async()=>{
+ if(!session||!archiveFile||archiveBusy)return;
+ const version=epoch,file=archiveFile,action=archiveAction;
+ archiveBusy=true;$('archive-confirm').disabled=true;$('archive-cancel').disabled=true;
+ $('archive-result').textContent='Saving…';
+ try{
+  const data=await manageArchive(session.access_token,{file_id:file.id,action});
+  if(version!==epoch)return;
+  closeArchive(true);await refresh();
+  if(version!==epoch)return;
+  message(!data.changed?'No change was needed.':action==='archive'?'File archived. Find it under Archived files.':'File restored privately. Find it under Active files.');
+ }catch(error){if(version===epoch){$('archive-result').textContent=error.message;$('archive-result').classList.add('error');if(error.status===401)handleError(error);}}
+ finally{if(version===epoch){archiveBusy=false;$('archive-cancel').disabled=false;}}
+});
+
+ async function currentToken(){
+  if(destroyed){const e=new Error('This Files view has closed.');e.status=401;throw e;}
+  const {data,error}=await sb.auth.getSession();
+  if(error||!data?.session?.access_token||data.session.user.id!==expectedUserId){const e=new Error('Your session has ended. Sign in again to view files.');e.status=401;throw e;}
+  return data.session.access_token;
+ }
+ ttFilesCleanup=clearSession;
+ message('Checking your account…');
+ try{
+  if(PROJECT_URL!=='https://tcuglaguhnerhitdszwj.supabase.co')throw new Error('Files is configured for the main TallyTrowel portal only.');
+  const token=await currentToken();
+  const rows=await getProfile(token,expectedUserId);
+  if(destroyed)return;
+  const p=Array.isArray(rows)&&rows.length===1?rows[0]:null;
+  if(!p||p.id!==expectedUserId||p.active!==true||p.archived_at||!['admin','worker'].includes(p.role))throw new Error('An active, unarchived portal account is required to use Files.');
+  session={access_token:token};currentRole=p.role;
+  $('file-view-controls').hidden=currentRole!=='admin';$('portal').hidden=false;
+  authSubscription=sb.auth.onAuthStateChange((_event,next)=>{
+   if(!next||next.user.id!==expectedUserId){clearSession();message('Your session has ended. Sign in again to view files.',true);}
+  }).data.subscription;
+  await refresh();
+ }catch(error){if(!destroyed){clearSession();message(error.message||'Files could not be loaded.',true);}}
+}
 
 sb.auth.onAuthStateChange((event,newSession)=>{
   session=newSession;
