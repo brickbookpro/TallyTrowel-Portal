@@ -182,6 +182,8 @@
 #ttFilesRoot .archive-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
 @media(max-width:700px){#ttFilesRoot .file-row{align-items:flex-start;flex-wrap:wrap}#ttFilesRoot .file-actions{width:100%}#ttFilesRoot .heading{flex-wrap:wrap}#ttFilesRoot #ttf-upload-fields{grid-template-columns:1fr}}
 
+
+#ttFilesRoot #ttf-backup-fields{border:0;padding:0;display:grid;gap:14px;min-width:0}#ttFilesRoot #ttf-backup-fields button{justify-self:start}#ttFilesRoot #ttf-backup-fields label{font-weight:600}#ttFilesRoot #ttf-backup-fields hr{width:100%;border:0;border-top:1px solid var(--line);margin:14px 0}#ttFilesRoot #ttf-recovery-options{display:grid;gap:12px}#ttFilesRoot #ttf-recovery-result{overflow-wrap:anywhere}#ttFilesRoot #ttf-backup-status{min-height:24px}
 </style>
 </head>
 <body>
@@ -1925,7 +1927,8 @@ async function backupRestorePage(){
       <p class="meta">
         Supabase login passwords, API/secret keys and authentication provider secrets are deliberately not included.
         Worker Auth accounts remain protected inside Supabase Authentication.
-        <br><strong>Files are not included:</strong> uploaded PDFs/photos, file records, sharing permissions and file activity are not saved or restored by this JSON backup. Keep separate original copies of important files.
+        <br><strong>Files are not included:</strong> uploaded PDFs/photos, file records, sharing permissions and file activity are not saved or restored by this JSON backup. Use the separate Files backup to save completed documents and their records. Keep original copies of important files.
+        <br><button class="btn primary" style="margin-top:12px" onclick="go('files')">Open Files backup and recovery</button>
       </p>
     </div>`;
 }
@@ -2948,11 +2951,99 @@ async function securityPage(){
 }
 function showModal(){modal.classList.remove('hidden')}function closeModal(){modal.classList.add('hidden')}
 
+// Portable ZIP STORE subset: UTF-8 names, CRC-32, no compression/encryption/ZIP64.
+// Recovery accepts only this tool's archives; it never extracts paths to a filesystem.
+const TTFilesBackupCodec=(()=>{
+ const LIMIT=100*1024*1024,ZIP_LIMIT=125*1024*1024,FILE_LIMIT=50*1024*1024;
+ const enc=new TextEncoder(),dec=new TextDecoder('utf-8',{fatal:true});
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ const types={'application/pdf':'pdf','image/png':'png','image/jpeg':'jpg','image/webp':'webp'};
+ const crcTable=Uint32Array.from({length:256},(_,n)=>{for(let k=0;k<8;k++)n=n&1?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
+ function crc(bytes){let n=0xffffffff;for(const b of bytes)n=crcTable[(n^b)&255]^(n>>>8);return (n^0xffffffff)>>>0;}
+ const fail=message=>{throw new Error(message);};
+ function safePath(name){return typeof name==='string'&&name.length>0&&enc.encode(name).length<4096&&!/[\\\x00-\x1f\x7f]/.test(name)&&!name.startsWith('/')&&!name.includes(':')&&!name.split('/').some(p=>!p||p==='.'||p==='..');}
+ function header(n){const b=new Uint8Array(n);return [b,new DataView(b.buffer)];}
+ function pack(entries){
+  if(!Array.isArray(entries)||entries.length>10002)fail('Too many backup entries.');
+  const chunks=[],directory=[],seen=new Set();let offset=0,total=0;
+  for(const [name,bytes] of entries){
+   if(!safePath(name)||seen.has(name)||!(Object.prototype.toString.call(bytes)==='[object Uint8Array]'))fail('Invalid or duplicate backup entry.');seen.add(name);
+   total+=bytes.length;if(total>ZIP_LIMIT)fail('Backup exceeds the 125 MB archive limit.');
+   const filename=enc.encode(name),checksum=crc(bytes),[local,l]=header(30);
+   l.setUint32(0,0x04034b50,true);l.setUint16(4,20,true);l.setUint16(6,0x800,true);l.setUint16(12,33,true);
+   l.setUint32(14,checksum,true);l.setUint32(18,bytes.length,true);l.setUint32(22,bytes.length,true);l.setUint16(26,filename.length,true);
+   const [central,c]=header(46);c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x800,true);c.setUint16(14,33,true);
+   c.setUint32(16,checksum,true);c.setUint32(20,bytes.length,true);c.setUint32(24,bytes.length,true);c.setUint16(28,filename.length,true);c.setUint32(42,offset,true);
+   chunks.push(local,filename,bytes);directory.push(central,filename);offset+=local.length+filename.length+bytes.length;
+  }
+  const directorySize=directory.reduce((n,b)=>n+b.length,0),[end,e]=header(22);
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,entries.length,true);e.setUint16(10,entries.length,true);e.setUint32(12,directorySize,true);e.setUint32(16,offset,true);
+  const blob=new Blob([...chunks,...directory,end],{type:'application/zip'});if(blob.size>ZIP_LIMIT)fail('Backup archive is too large.');return blob;
+ }
+ function unpack(bytes){
+  if(!(Object.prototype.toString.call(bytes)==='[object Uint8Array]')||bytes.length<22||bytes.length>ZIP_LIMIT)fail('Invalid backup size.');
+  const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),end=bytes.length-22;
+  if(v.getUint32(end,true)!==0x06054b50||v.getUint16(end+4,true)!==0||v.getUint16(end+6,true)!==0||v.getUint16(end+20,true)!==0)fail('Choose an unmodified ZIP created by Files Backup.');
+  const count=v.getUint16(end+10,true),cdSize=v.getUint32(end+12,true),cdStart=v.getUint32(end+16,true);
+  if(count>10002||v.getUint16(end+8,true)!==count||cdStart+cdSize!==end)fail('Invalid backup directory.');
+  const entries=new Map();let pos=cdStart,localEnd=0;
+  for(let i=0;i<count;i++){
+   if(pos+46>end||v.getUint32(pos,true)!==0x02014b50)fail('Invalid backup entry.');
+   const flags=v.getUint16(pos+8,true),method=v.getUint16(pos+10,true),checksum=v.getUint32(pos+16,true),size=v.getUint32(pos+24,true),nameLen=v.getUint16(pos+28,true),extra=v.getUint16(pos+30,true),comment=v.getUint16(pos+32,true),start=v.getUint32(pos+42,true);
+   if(flags!==0x800||method!==0||size!==v.getUint32(pos+20,true)||size>FILE_LIMIT||extra!==0||comment!==0||v.getUint16(pos+34,true)!==0||pos+46+nameLen>end)fail('Unsupported or oversized backup entry.');
+   const name=dec.decode(bytes.subarray(pos+46,pos+46+nameLen));
+   if(!safePath(name)||entries.has(name)||start!==localEnd||start+30>cdStart||v.getUint32(start,true)!==0x04034b50)fail('Invalid or duplicate backup path.');
+   if(v.getUint16(start+6,true)!==flags||v.getUint16(start+8,true)!==method||v.getUint32(start+14,true)!==checksum||v.getUint32(start+18,true)!==size||v.getUint32(start+22,true)!==size||v.getUint16(start+26,true)!==nameLen||v.getUint16(start+28,true)!==0)fail('Backup headers do not match.');
+   const dataStart=start+30+nameLen;
+   if(dataStart+size>cdStart||dec.decode(bytes.subarray(start+30,dataStart))!==name)fail('Backup entry is truncated.');
+   const data=bytes.subarray(dataStart,dataStart+size);if(crc(data)!==checksum)fail('Backup is damaged: checksum mismatch.');
+   entries.set(name,data);localEnd=dataStart+size;pos+=46+nameLen;
+  }
+  if(pos!==end||localEnd!==cdStart)fail('Unexpected data in backup archive.');return entries;
+ }
+ async function sha(bytes){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');}
+ function canonical(value){if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';return JSON.stringify(value);}
+ function checkSnapshot(s){
+  if(!s||s.product!=='TallyTrowel Files'||s.format_version!==1||s.project_ref!=='tcuglaguhnerhitdszwj'||s.bucket!=='portal-files'||!uuid.test(s.company_id)||!Array.isArray(s.files)||!Array.isArray(s.shares)||!Array.isArray(s.events)||s.files.length>10000||s.shares.length>100000||s.events.length>100000)fail('This is not a supported main-portal Files backup.');
+  const ids=new Set();let total=0;
+  for(const f of s.files){
+   if(!f||!uuid.test(f.id)||ids.has(f.id)||!uuid.test(f.owner_id)||f.company_id!==s.company_id||f.object_key!==s.company_id+'/'+f.id||!['ready','pending','failed','deleting'].includes(f.status)||!['company','restricted'].includes(f.audience)||!Object.hasOwn(types,f.mime_type)||!Number.isSafeInteger(f.size_bytes)||f.size_bytes<1||f.size_bytes>FILE_LIMIT)fail('Invalid file record in backup.');ids.add(f.id);
+   for(const [key,max,required] of [['title',120,true],['description',1500,false],['site_label',80,false],['original_name',255,true]])if(typeof f[key]!=='string'||[...f[key]].length>max||(required&&!f[key].trim())||/[\x00-\x1f\x7f]/.test(f[key]))fail('Invalid file details in backup.');
+   if(/[\\/]/.test(f.original_name)||!['Drawings','Site Photos','Instructions','Documents','Other'].includes(f.category)||!new RegExp('\\.'+(f.mime_type==='image/jpeg'?'jpe?g':types[f.mime_type])+'$','i').test(f.original_name))fail('Invalid file type or name in backup.');
+   if(f.archived_at!==null&&(typeof f.archived_at!=='string'||!Number.isFinite(Date.parse(f.archived_at))))fail('Invalid archive date in backup.');
+   if(f.status==='ready')total+=f.size_bytes;
+  }
+  if(total>LIMIT)fail('Completed files exceed this backup tool’s 100 MB total limit. A larger export is required.');
+  return {ready:s.files.filter(f=>f.status==='ready'),total};
+ }
+ const pathFor=f=>'documents/'+f.id+'/'+f.original_name.replace(/[<>:"|?*]/g,'_');
+ async function verify(blob){
+  if(blob.size>ZIP_LIMIT)fail('Choose a Files backup ZIP no larger than 125 MB.');
+  const entries=unpack(new Uint8Array(await blob.arrayBuffer())),raw=entries.get('manifest.json');
+  if(!raw||raw.length>20*1024*1024)fail('Backup manifest is missing or too large.');
+  let manifest;try{manifest=JSON.parse(dec.decode(raw));}catch{fail('Backup manifest could not be read.');}
+  if(manifest?.format!=='tallytrowel-files-zip'||manifest.version!==1||!uuid.test(manifest.backup_id)||!Array.isArray(manifest.documents))fail('Unsupported Files backup.');
+  const {ready,total}=checkSnapshot(manifest.snapshot);
+  if(await sha(enc.encode(canonical(manifest.snapshot)))!==manifest.snapshot_sha256)fail('Backup records failed verification.');
+  if(manifest.documents.length!==ready.length||entries.size!==ready.length+2||!entries.has('README.txt'))fail('Backup document list is incomplete.');
+  const documents=new Map();
+  for(const f of ready){
+   const matches=manifest.documents.filter(d=>d.file_id===f.id);if(matches.length!==1)fail('Duplicate or missing backup file.');
+   const d=matches[0],bytes=entries.get(pathFor(f));
+   if(d.path!==pathFor(f)||!bytes||bytes.length!==f.size_bytes||d.size_bytes!==f.size_bytes||!/^[a-f0-9]{64}$/.test(d.sha256)||await sha(bytes)!==d.sha256)fail('A backed-up document failed verification.');
+   documents.set(f.id,bytes);
+  }
+  return {manifest,ready,total,documents};
+ }
+ return {LIMIT,ZIP_LIMIT,pack,unpack,sha,canonical,checkSnapshot,pathFor,verify,encode:s=>enc.encode(s)};
+})();
+
 let ttFilesCleanup=null;
 async function filesPage(){
  const expectedUserId=profile?.id;
  content.innerHTML='<div id="ttFilesRoot">'+"<section id=\"ttf-portal\" hidden><div class=\"heading\"><div><div class=\"eyebrow\">YOUR SITE. ALL IN ONE PLACE.</div><h1>Your files</h1><p>Files available to your signed-in account.</p></div><button id=\"ttf-refresh\" class=\"primary\">Refresh files</button></div><section class=\"intro\"><div><b>Private by default</b><p>Upload a PDF or site photo. New uploads are private to you and your company administrators.</p></div></section><details class=\"upload-panel\"><summary>Upload a file</summary><p>PDF, PNG, JPEG or WEBP \u00b7 Up to 50 MB per file.</p><form id=\"ttf-upload-form\"><fieldset id=\"ttf-upload-fields\"><label class=\"wide\">Choose file<input id=\"ttf-upload-file\" type=\"file\" accept=\".pdf,.png,.jpg,.jpeg,.webp\" required></label><label class=\"wide\">Title<input id=\"ttf-upload-title\" maxlength=\"120\" required placeholder=\"For example: Plot 42 drawings\"></label><label>Category<select id=\"ttf-upload-category\"><option>Documents</option><option>Drawings</option><option>Site Photos</option><option>Instructions</option><option>Other</option></select></label><label>Site / plot (optional)<input id=\"ttf-upload-site\" maxlength=\"80\"></label><label class=\"wide\">Description (optional)<input id=\"ttf-upload-description\" maxlength=\"1500\"></label><p class=\"hint wide\">Visible to you and company administrators. Other workers will need sharing permission.</p><button class=\"primary\" type=\"submit\">Upload privately</button></fieldset></form><p id=\"ttf-upload-result\" role=\"status\" aria-live=\"polite\"></p></details><div class=\"tools\"><label class=\"search\"><input id=\"ttf-search\" type=\"search\" placeholder=\"Search your files\u2026\" aria-label=\"Search your files\"></label></div><div id=\"ttf-file-view-controls\" hidden><label>Show <select id=\"ttf-file-view\"><option value=\"active\">Active files</option><option value=\"archived\">Archived files</option></select></label></div><div class=\"section-line\"><h2 id=\"ttf-file-list-title\">Available files</h2><span id=\"ttf-count\"></span></div><div id=\"ttf-file-list\"></div></section><p id=\"ttf-message\" role=\"status\" aria-live=\"polite\"></p><dialog id=\"ttf-preview\"><div class=\"modal-head\"><h2 id=\"ttf-preview-title\">Preview</h2><button id=\"ttf-close-preview\" class=\"close\" aria-label=\"Close preview\">\u00d7</button></div><div id=\"ttf-preview-content\"></div></dialog><dialog id=\"ttf-sharing\" aria-labelledby=\"ttf-sharing-title\"><div class=\"modal-head\"><h2 id=\"ttf-sharing-title\">Manage sharing</h2><button id=\"ttf-close-sharing\" class=\"close\" aria-label=\"Close sharing\">\u00d7</button></div><p id=\"ttf-sharing-file\"></p><p class=\"hint\">The owner and company administrators retain access. Removing access prevents future downloads; it cannot remove copies already downloaded.</p><fieldset id=\"ttf-sharing-fields\"><div id=\"ttf-sharing-content\"></div></fieldset><p id=\"ttf-sharing-result\" role=\"status\" aria-live=\"polite\"></p><button id=\"ttf-reload-sharing\">Reload sharing details</button></dialog><dialog id=\"ttf-archive-dialog\" aria-labelledby=\"ttf-archive-title\"><div class=\"modal-head\"><h2 id=\"ttf-archive-title\">Archive file</h2></div><p id=\"ttf-archive-file\"></p><p id=\"ttf-archive-explanation\"></p><p id=\"ttf-archive-result\" role=\"status\" aria-live=\"polite\"></p><div class=\"archive-actions\"><button id=\"ttf-archive-cancel\">Cancel</button><button id=\"ttf-archive-confirm\" class=\"primary\">Archive file</button></div></dialog>"+ '</div>';
  const root=document.getElementById('ttFilesRoot');
+ root.querySelector('.upload-panel').insertAdjacentHTML('afterend',"<details id=\"ttf-backup-panel\" class=\"upload-panel\" hidden><summary>Files backup and recovery \u2014 admin only</summary><p>Download completed files (including archived files), file details, sharing records and file activity together in one ZIP. Pending/failed uploads have records only. Up to 100 MB of completed documents per backup.</p><p class=\"hint\">This ZIP is not encrypted and contains private documents. Keep it somewhere private. It is separate from the core portal JSON backup.</p><fieldset id=\"ttf-backup-fields\"><button id=\"ttf-backup-download\" class=\"primary\" type=\"button\">Download Files Backup</button><hr><h3>Verify and recover a backup</h3><label for=\"ttf-backup-file\">Choose your unmodified Files backup ZIP</label><input id=\"ttf-backup-file\" type=\"file\" accept=\".zip,application/zip\"><button id=\"ttf-backup-verify\" type=\"button\">Verify backup</button><p id=\"ttf-backup-review\" role=\"status\" aria-live=\"polite\"></p><div id=\"ttf-recovery-options\" hidden><p><strong>Recovery creates new private copies owned by you.</strong> It preserves document contents, filenames, descriptions, categories and site labels. Existing files are not replaced. Original owners, sharing permissions, archive status and activity are kept in the backup for reference, but are not reapplied.</p><p class=\"hint\">Recovered titles start with \u201cRecovered \u2014\u201d. Repeating recovery can create duplicates. Recover only backups you trust; verification detects corruption, not who created the backup.</p><label for=\"ttf-recovery-choice\">Recover</label><select id=\"ttf-recovery-choice\"></select><button id=\"ttf-backup-recover\" class=\"primary\" type=\"button\">Recover privately</button><div id=\"ttf-recovery-result\" role=\"status\" aria-live=\"polite\"></div></div></fieldset><p id=\"ttf-backup-status\" role=\"status\" aria-live=\"polite\"></p></details>");
 const PROJECT_URL=window.TALLYTROWEL_SUPABASE_URL.replace(/\/$/,'');
 const KEY=window.TALLYTROWEL_SUPABASE_ANON_KEY;
 async function request(path,{token,method='GET',body,blob=false}={}){
@@ -3023,6 +3114,7 @@ let destroyed=false,authSubscription=null,refreshVersion=0;
 function clearSession(){
  if(destroyed)return;
  destroyed=true;epoch++;refreshVersion++;
+ backupBusy=false;resetBackupReview();$('backup-file').value='';$('backup-panel').hidden=true;window.removeEventListener('beforeunload',backupLeaving);
  closeArchive(true);closeSharing(true);closePreview();
  files=[];session=null;currentRole=null;
  for(const url of urls)URL.revokeObjectURL(url);urls.clear();
@@ -3158,6 +3250,98 @@ $('archive-confirm').addEventListener('click',async()=>{
  finally{if(version===epoch){archiveBusy=false;$('archive-cancel').disabled=false;}}
 });
 
+// Runs inside filesPage; shares its session lifecycle and authenticated APIs.
+let backupBusy=false,verifiedBackup=null,recoveryCompleted=new Set();
+function backupStatus(text,error=false){$('backup-status').textContent=text;$('backup-status').classList.toggle('error',error);}
+function backupLock(value){backupBusy=value;$('backup-fields').disabled=value;}
+function backupLeaving(event){if(backupBusy){event.preventDefault();event.returnValue='';}}
+window.addEventListener('beforeunload',backupLeaving);
+async function requireBackupAdmin(){
+ const token=await currentToken();const rows=await getProfile(token,expectedUserId);
+ const p=Array.isArray(rows)&&rows.length===1?rows[0]:null;
+ if(!p||p.id!==expectedUserId||p.role!=='admin'||p.active!==true||p.archived_at)throw new Error('An active administrator is required for Files backup and recovery.');
+ if(destroyed)throw new Error('This Files view has closed.');return token;
+}
+async function backupSnapshot(){
+ await requireBackupAdmin();
+ return request('/rest/v1/rpc/tt_files_backup_snapshot',{method:'POST',body:{}});
+}
+function saveBackupBlob(blob,name){
+ const url=URL.createObjectURL(blob);urls.add(url);
+ const link=document.createElement('a');link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
+ setTimeout(()=>{URL.revokeObjectURL(url);urls.delete(url);},60000);
+}
+$('backup-download').addEventListener('click',async()=>{
+ if(backupBusy||destroyed||currentRole!=='admin')return;
+ backupLock(true);backupStatus('Reading file records… Keep this page open.');
+ try{
+  const snapshot=await backupSnapshot();const {ready,total}=TTFilesBackupCodec.checkSnapshot(snapshot);
+  if(destroyed)return;
+  const entries=[],documents=[];
+  for(let i=0;i<ready.length;i++){
+   const f=ready[i];backupStatus(`Downloading ${i+1} of ${ready.length}: ${f.title}`);
+   const blob=await downloadFile(await requireBackupAdmin(),f);
+   if(destroyed)return;
+   if(blob.size!==f.size_bytes)throw new Error('A file size changed or a download was incomplete. No backup was saved.');
+   const bytes=new Uint8Array(await blob.arrayBuffer()),path=TTFilesBackupCodec.pathFor(f);
+   documents.push({file_id:f.id,path,size_bytes:bytes.length,sha256:await TTFilesBackupCodec.sha(bytes)});entries.push([path,bytes]);
+   await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  backupStatus('Checking that file records did not change during download…');
+  const end=await backupSnapshot();if(destroyed)return;
+  if(TTFilesBackupCodec.canonical(snapshot)!==TTFilesBackupCodec.canonical(end))throw new Error('Files or sharing changed during backup. No backup was saved. Wait for changes to finish, then try again.');
+  const manifest={format:'tallytrowel-files-zip',version:1,backup_id:crypto.randomUUID(),created_at:new Date().toISOString(),created_by:expectedUserId,snapshot,snapshot_sha256:await TTFilesBackupCodec.sha(TTFilesBackupCodec.encode(TTFilesBackupCodec.canonical(snapshot))),documents};
+  const notes='TallyTrowel Files backup\n\nContains completed (ready) files, including archived files, plus all file metadata, sharing records and file activity in manifest.json. Pending, failed and deleting uploads have metadata only; their stored bytes are not included.\n\nDocuments are ordinary files under documents/. This ZIP is not encrypted. Store it somewhere private. It does not contain passwords, authentication accounts, other portal tables or a complete Supabase project backup.\n\nRecovery through the portal creates NEW private copies owned by the recovering administrator. It preserves document contents, filename, description, category and site label; it does not overwrite existing files or reapply original ownership, sharing, archive status, record IDs or activity history. Original records remain in manifest.json for reference. Review copies and share them deliberately afterwards. Repeating recovery creates duplicates.\n\nUse the unmodified ZIP for Verify backup. Checks detect corruption; they do not prove who created an archive. Recover only backups you trust.\n';
+  const manifestBytes=TTFilesBackupCodec.encode(JSON.stringify(manifest,null,2));if(manifestBytes.length>20*1024*1024)throw new Error('Backup records exceed the 20 MB manifest limit. A larger export is required.');
+  entries.push(['manifest.json',manifestBytes],['README.txt',TTFilesBackupCodec.encode(notes)]);
+  const zip=TTFilesBackupCodec.pack(entries);if(destroyed)return;
+  saveBackupBlob(zip,'TallyTrowel-Files-'+new Date().toISOString().replace(/[:.]/g,'-')+'.zip');
+  backupStatus(`Backup download requested: ${ready.length} completed files (${(total/1024/1024).toFixed(1)} MB). Check Downloads, then use Verify backup below.`);
+ }catch(error){if(!destroyed)backupStatus(error.message||'Backup failed. No completed backup was saved.',true);}
+ finally{if(!destroyed)backupLock(false);}
+});
+function resetBackupReview(){verifiedBackup=null;recoveryCompleted.clear();$('recovery-options').hidden=true;$('recovery-choice').replaceChildren();$('recovery-result').textContent='';$('backup-review').textContent='';}
+$('backup-file').addEventListener('change',resetBackupReview);
+$('backup-verify').addEventListener('click',async()=>{
+ if(backupBusy||destroyed||currentRole!=='admin')return;
+ const zip=$('backup-file').files[0];if(!zip){backupStatus('Choose the Files backup ZIP first.',true);return;}
+ backupLock(true);resetBackupReview();backupStatus('Verifying ZIP records and every completed document…');
+ try{
+  await requireBackupAdmin();const result=await TTFilesBackupCodec.verify(zip);if(destroyed)return;
+  verifiedBackup=result;
+  $('backup-review').textContent=`Verified: ${result.ready.length} completed files, ${result.manifest.snapshot.shares.length} sharing records and ${result.manifest.snapshot.events.length} file events. Created ${result.manifest.created_at}. Incomplete uploads are recorded as metadata only.`;
+  const select=$('recovery-choice');
+  const empty=element('option','Choose a file to recover');empty.value='';select.append(empty);
+  if(result.ready.length){const all=element('option',`All ${result.ready.length} completed files`);all.value='all';select.append(all);}
+  for(const f of result.ready){const option=element('option',f.title+' — '+f.original_name+(f.archived_at?' (originally archived)':''));option.value=f.id;select.append(option);}
+  $('recovery-options').hidden=!result.ready.length;backupStatus('Verification passed. Nothing has been uploaded or changed.');
+ }catch(error){if(!destroyed){resetBackupReview();backupStatus(error.message||'Backup verification failed.',true);}}
+ finally{if(!destroyed)backupLock(false);}
+});
+$('backup-recover').addEventListener('click',async()=>{
+ if(backupBusy||destroyed||currentRole!=='admin'||!verifiedBackup)return;
+ const chosen=$('recovery-choice').value;
+ const selected=verifiedBackup.ready.filter(f=>chosen==='all'||f.id===chosen).filter(f=>!recoveryCompleted.has(f.id));
+ if(!selected.length){backupStatus('Choose an unrecovered file, or all files. Completed copies are skipped in this session.',true);return;}
+ if(!window.confirm(`Recover ${selected.length} file(s) as NEW private copies owned by your admin account? Existing files will remain untouched. Original owners, sharing and archive status will not be reapplied.`))return;
+ backupLock(true);backupStatus('Recovering private copies… Keep this page open.');
+ let complete=0;
+ try{
+  for(const f of selected){
+   const token=await requireBackupAdmin();if(destroyed)return;
+   backupStatus(`Recovering ${complete+1} of ${selected.length}: ${f.title}`);
+   const bytes=verifiedBackup.documents.get(f.id);
+   const restored=await uploadFile(token,new File([bytes],f.original_name,{type:f.mime_type}),{title:('Recovered — '+f.title).slice(0,120),description:f.description,category:f.category,site_label:f.site_label});
+   if(destroyed)return;
+   recoveryCompleted.add(f.id);complete++;
+   $('recovery-result').append(element('p',`Recovered: ${f.title} → ${restored.id}`));
+  }
+  $('file-view').value='active';$('search').value='';await refresh();
+  if(!destroyed)backupStatus(`Recovery complete: ${complete} new private copies. Open them below to check the contents. Sharing and original ownership were not restored.`);
+ }catch(error){if(!destroyed){await refresh().catch(()=>{});if(!destroyed)backupStatus(`Recovery stopped after ${complete} confirmed copies. ${error.message||'Upload failed.'} Check the file list before retrying; the last upload may have completed.`,true);}}
+ finally{if(!destroyed)backupLock(false);}
+});
+
  async function currentToken(){
   if(destroyed){const e=new Error('This Files view has closed.');e.status=401;throw e;}
   const {data,error}=await sb.auth.getSession();
@@ -3174,7 +3358,7 @@ $('archive-confirm').addEventListener('click',async()=>{
   const p=Array.isArray(rows)&&rows.length===1?rows[0]:null;
   if(!p||p.id!==expectedUserId||p.active!==true||p.archived_at||!['admin','worker'].includes(p.role))throw new Error('An active, unarchived portal account is required to use Files.');
   session={access_token:token};currentRole=p.role;
-  $('file-view-controls').hidden=currentRole!=='admin';$('portal').hidden=false;
+  $('file-view-controls').hidden=currentRole!=='admin';$('backup-panel').hidden=currentRole!=='admin';$('portal').hidden=false;
   authSubscription=sb.auth.onAuthStateChange((_event,next)=>{
    if(!next||next.user.id!==expectedUserId){clearSession();message('Your session has ended. Sign in again to view files.',true);}
   }).data.subscription;
